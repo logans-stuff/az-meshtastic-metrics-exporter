@@ -6,15 +6,6 @@ from venv import logger
 import unishox2
 
 try:
-    from meshtastic.admin_pb2 import AdminMessage
-    from meshtastic.mesh_pb2 import Position, User, HardwareModel, Routing, Waypoint, RouteDiscovery, NeighborInfo
-    from meshtastic.mqtt_pb2 import MapReport
-    from meshtastic.paxcount_pb2 import Paxcount
-    from meshtastic.portnums_pb2 import PortNum
-    from meshtastic.remote_hardware_pb2 import HardwareMessage
-    from meshtastic.storeforward_pb2 import StoreAndForward
-    from meshtastic.telemetry_pb2 import Telemetry, DeviceMetrics, EnvironmentMetrics, AirQualityMetrics, PowerMetrics
-except ImportError:
     from meshtastic.protobuf.admin_pb2 import AdminMessage
     from meshtastic.protobuf.mesh_pb2 import Position, User, HardwareModel, Routing, Waypoint, RouteDiscovery, \
         NeighborInfo
@@ -25,6 +16,15 @@ except ImportError:
     from meshtastic.protobuf.storeforward_pb2 import StoreAndForward
     from meshtastic.protobuf.telemetry_pb2 import Telemetry, DeviceMetrics, EnvironmentMetrics, AirQualityMetrics, \
         PowerMetrics
+except ImportError:
+    from meshtastic.admin_pb2 import AdminMessage
+    from meshtastic.mesh_pb2 import Position, User, HardwareModel, Routing, Waypoint, RouteDiscovery, NeighborInfo
+    from meshtastic.mqtt_pb2 import MapReport
+    from meshtastic.paxcount_pb2 import Paxcount
+    from meshtastic.portnums_pb2 import PortNum
+    from meshtastic.remote_hardware_pb2 import HardwareMessage
+    from meshtastic.storeforward_pb2 import StoreAndForward
+    from meshtastic.telemetry_pb2 import Telemetry, DeviceMetrics, EnvironmentMetrics, AirQualityMetrics, PowerMetrics
 
 from psycopg_pool import ConnectionPool
 

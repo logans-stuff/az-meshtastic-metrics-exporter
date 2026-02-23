@@ -8,13 +8,13 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 try:
-    from meshtastic.mesh_pb2 import MeshPacket, Data, HardwareModel
-    from meshtastic.portnums_pb2 import PortNum
-    from meshtastic.mqtt_pb2 import ServiceEnvelope
-except ImportError:
     from meshtastic.protobuf.mesh_pb2 import MeshPacket, Data, HardwareModel
     from meshtastic.protobuf.portnums_pb2 import PortNum
     from meshtastic.protobuf.mqtt_pb2 import ServiceEnvelope
+except ImportError:
+    from meshtastic.mesh_pb2 import MeshPacket, Data, HardwareModel
+    from meshtastic.portnums_pb2 import PortNum
+    from meshtastic.mqtt_pb2 import ServiceEnvelope
 
 from psycopg_pool import ConnectionPool
 
@@ -105,6 +105,15 @@ class MessageProcessor:
 
     def process_simple_packet_details(self, destination_client_details, mesh_packet: MeshPacket, port_num,
                                       source_client_details):
+        # Resolve transport_mechanism enum to its name string
+        transport_name = None
+        transport_val = getattr(mesh_packet, 'transport_mechanism', None)
+        if transport_val is not None:
+            descriptor = mesh_packet.DESCRIPTOR.fields_by_name.get('transport_mechanism')
+            if descriptor and descriptor.enum_type:
+                enum_val = descriptor.enum_type.values_by_number.get(transport_val)
+                transport_name = enum_val.name if enum_val else str(transport_val)
+
         # Store mesh packet metrics in TimescaleDB
         self.db_handler.store_mesh_packet_metrics(
             source_client_details.node_id,
@@ -120,7 +129,11 @@ class MessageProcessor:
                 'hop_start': mesh_packet.hop_start,
                 'want_ack': mesh_packet.want_ack,
                 'via_mqtt': mesh_packet.via_mqtt,
-                'message_size_bytes': sys.getsizeof(mesh_packet)
+                'message_size_bytes': sys.getsizeof(mesh_packet),
+                'relay_node': getattr(mesh_packet, 'relay_node', None) or None,
+                'next_hop': getattr(mesh_packet, 'next_hop', None) or None,
+                'transport_mechanism': transport_name,
+                'pki_encrypted': getattr(mesh_packet, 'pki_encrypted', False),
             }
         )
 
