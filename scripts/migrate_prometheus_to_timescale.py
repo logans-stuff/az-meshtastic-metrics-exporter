@@ -15,7 +15,7 @@ Usage:
 
 Environment variables (all optional, shown with defaults):
     PROMETHEUS_URL   http://localhost:9090
-    STEP             60s   (query resolution — increase to reduce duplicate rows)
+    STEP             300s  (query resolution — increase to reduce duplicate rows)
     DAYS             30    (how many days back to migrate)
     PG_HOST          localhost
     PG_PORT          5432
@@ -41,7 +41,7 @@ import psycopg
 # ---------------------------------------------------------------------------
 
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
-STEP = os.getenv("STEP", "60s")
+STEP = os.getenv("STEP", "300s")
 DAYS = int(os.getenv("DAYS", "30"))
 CHUNK_DAYS = 7  # query Prometheus in weekly chunks to avoid timeouts
 
