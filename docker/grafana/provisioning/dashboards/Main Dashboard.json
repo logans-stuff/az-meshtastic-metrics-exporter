@@ -1213,7 +1213,7 @@
           },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time,\n  COALESCE(nd.short_name || ':' || nd.long_name, mpm.source_id) AS metric,\n  hop_start AS value\nFROM mesh_packet_metrics mpm\nLEFT JOIN node_details nd ON mpm.source_id = nd.node_id\nWHERE $__timeFilter(time)\n  AND mpm.source_id IN ($Nodes)\n  AND hop_start IS NOT NULL\nORDER BY 1",
+          "rawSql": "SELECT\n  time,\n  COALESCE(nd.short_name || ':' || nd.long_name, mpm.source_id) AS metric,\n  hop_start AS value\nFROM mesh_packet_metrics mpm\nLEFT JOIN node_details nd ON mpm.source_id = nd.node_id\nWHERE $__timeFilter(time)\n  AND mpm.source_id IN ($Nodes)\n  AND hop_start IS NOT NULL\n  AND mpm.source_id IN (\n    SELECT source_id\n    FROM mesh_packet_metrics\n    WHERE $__timeFilter(time)\n      AND hop_start IS NOT NULL\n      AND source_id IN ($Nodes)\n    GROUP BY source_id\n    ORDER BY MAX(hop_start) DESC\n    LIMIT 20\n  )\nORDER BY 1",
           "refId": "A",
           "hide": false
         }
