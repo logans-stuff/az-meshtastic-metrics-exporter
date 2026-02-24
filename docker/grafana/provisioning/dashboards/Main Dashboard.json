@@ -1140,7 +1140,7 @@
     },
     {
       "datasource": {
-        "type": "prometheus",
+        "type": "grafana-postgresql-datasource",
         "uid": "PA942B37CCFAF5A81"
       },
       "description": "How many hops are configured for each client",
@@ -1208,19 +1208,14 @@
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
+            "type": "grafana-postgresql-datasource",
             "uid": "PA942B37CCFAF5A81"
           },
-          "disableTextWrap": false,
-          "editorMode": "code",
-          "expr": "max(\n  mesh_packet_hop_start{source_id=~\"$Nodes\"}\n  and\n  (delta(mesh_packet_hop_start{source_id=~\"$Nodes\"}[1m]) != 0)\n) by (source_id, source_long_name)",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "{{source_long_name}}",
-          "range": true,
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  time,\n  COALESCE(nd.short_name || ':' || nd.long_name, mpm.source_id) AS metric,\n  hop_start AS value\nFROM mesh_packet_metrics mpm\nLEFT JOIN node_details nd ON mpm.source_id = nd.node_id\nWHERE $__timeFilter(time)\n  AND mpm.source_id IN ($Nodes)\n  AND hop_start IS NOT NULL\nORDER BY 1",
           "refId": "A",
-          "useBackend": false
+          "hide": false
         }
       ],
       "title": "The configured max hops for each client",
