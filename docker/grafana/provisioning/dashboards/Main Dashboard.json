@@ -400,17 +400,17 @@
                 "none": {
                   "color": "text",
                   "index": 0,
-                  "text": "⚪️ Unknown"
+                  "text": "\u26aa\ufe0f Unknown"
                 },
                 "offline": {
                   "color": "red",
                   "index": 1,
-                  "text": "🛑 Offline"
+                  "text": "\ud83d\uded1 Offline"
                 },
                 "online": {
                   "color": "green",
                   "index": 2,
-                  "text": "🟢 Online"
+                  "text": "\ud83d\udfe2 Online"
                 }
               },
               "type": "value"
@@ -741,7 +741,7 @@
     },
     {
       "datasource": {
-        "type": "prometheus",
+        "type": "grafana-postgresql-datasource",
         "uid": "PA942B37CCFAF5A81"
       },
       "description": "Shows the max recorded chanel utilization and the average",
@@ -839,20 +839,14 @@
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
+            "type": "grafana-postgresql-datasource",
             "uid": "PA942B37CCFAF5A81"
           },
-          "disableTextWrap": false,
-          "editorMode": "builder",
-          "expr": "avg(telemetry_app_channel_utilization{node_id=~\"$Nodes\"})",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "Chanel utilization (Avg)",
-          "range": true,
-          "refId": "Average Chanel Utilization",
-          "useBackend": false
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  time_bucket('5 minutes', time) AS time,\n  AVG(channel_utilization) AS \"Avg Channel Utilization\"\nFROM device_metrics\nWHERE $__timeFilter(time)\n  AND channel_utilization IS NOT NULL\n  AND channel_utilization > 0\n  AND node_id IN ($Nodes)\nGROUP BY 1\nORDER BY 1",
+          "refId": "Average Channel Utilization",
+          "hide": false
         }
       ],
       "title": "Channel Utilization (ChUtil)",
@@ -1366,7 +1360,7 @@
           "format": "table",
           "hide": false,
           "rawQuery": true,
-          "rawSql": "SELECT \n    CONCAT(neighbor_id, '_', node_id) AS id,\n    neighbor_id AS \"source\",\n    node_id AS \"target\",\n    snr AS \"mainstat\",\n    CASE\n        WHEN snr < -13 THEN '#E74C3C'  -- Red for SNR < -13\n        WHEN snr < -7 THEN '#F4D03F'   -- Yellow for -13 ≤ SNR < -7\n        ELSE '#2ECC71'                 -- Green for SNR ≥ -7\n    END AS \"color\",\n    GREATEST(0.1, LEAST(2, 1 + ((snr + 13) / 10))) AS \"thickness\"\nFROM \n    node_neighbors",
+          "rawSql": "SELECT \n    CONCAT(neighbor_id, '_', node_id) AS id,\n    neighbor_id AS \"source\",\n    node_id AS \"target\",\n    snr AS \"mainstat\",\n    CASE\n        WHEN snr < -13 THEN '#E74C3C'  -- Red for SNR < -13\n        WHEN snr < -7 THEN '#F4D03F'   -- Yellow for -13 \u2264 SNR < -7\n        ELSE '#2ECC71'                 -- Green for SNR \u2265 -7\n    END AS \"color\",\n    GREATEST(0.1, LEAST(2, 1 + ((snr + 13) / 10))) AS \"thickness\"\nFROM \n    node_neighbors",
           "refId": "edges",
           "sql": {
             "columns": [
@@ -1452,17 +1446,17 @@
                 "none": {
                   "color": "text",
                   "index": 2,
-                  "text": "⚪️ Unknown"
+                  "text": "\u26aa\ufe0f Unknown"
                 },
                 "offline": {
                   "color": "red",
                   "index": 1,
-                  "text": "🛑 offline"
+                  "text": "\ud83d\uded1 offline"
                 },
                 "online": {
                   "color": "green",
                   "index": 0,
-                  "text": "🟢 online"
+                  "text": "\ud83d\udfe2 online"
                 }
               },
               "type": "value"
@@ -1473,7 +1467,7 @@
                 "result": {
                   "color": "text",
                   "index": 3,
-                  "text": "⚪️ Unknown"
+                  "text": "\u26aa\ufe0f Unknown"
                 }
               },
               "type": "special"
@@ -1742,17 +1736,17 @@
                 "none": {
                   "color": "blue",
                   "index": 0,
-                  "text": "⚪️ Unknown"
+                  "text": "\u26aa\ufe0f Unknown"
                 },
                 "offline": {
                   "color": "red",
                   "index": 2,
-                  "text": "🛑 Offline"
+                  "text": "\ud83d\uded1 Offline"
                 },
                 "online": {
                   "color": "green",
                   "index": 1,
-                  "text": "🟢 Online"
+                  "text": "\ud83d\udfe2 Online"
                 }
               },
               "type": "value"
