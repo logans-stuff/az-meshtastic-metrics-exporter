@@ -962,7 +962,7 @@
     },
     {
       "datasource": {
-        "type": "prometheus",
+        "type": "grafana-postgresql-datasource",
         "uid": "PA942B37CCFAF5A81"
       },
       "description": "Displays the nodes that utilize most of the channel (On average with at least 1 update every hour)",
@@ -1053,20 +1053,14 @@
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
+            "type": "grafana-postgresql-datasource",
             "uid": "PA942B37CCFAF5A81"
           },
-          "disableTextWrap": false,
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "topk(3,\n  avg by (node_id, short_name, long_name) (\n    avg_over_time(telemetry_app_channel_utilization{node_id=~\"$Nodes\"}[$__range]) > 0\n    and\n    timestamp(telemetry_app_channel_utilization{node_id=~\"$Nodes\"}) > time() - 3600\n    and\n    changes(telemetry_app_channel_utilization{node_id=~\"$Nodes\"}[3h]) > 0\n  )\n)",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "{{short_name}}:{{long_name}}",
-          "range": true,
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH top_nodes AS (\n  SELECT dm.node_id\n  FROM device_metrics dm\n  WHERE $__timeFilter(dm.time)\n    AND dm.channel_utilization IS NOT NULL\n    AND dm.channel_utilization > 0\n    AND dm.node_id IN ($Nodes)\n    AND dm.node_id IN (\n      SELECT DISTINCT node_id\n      FROM device_metrics\n      WHERE time >= NOW() - INTERVAL '1 hour'\n        AND channel_utilization IS NOT NULL\n        AND channel_utilization > 0\n    )\n  GROUP BY dm.node_id\n  ORDER BY AVG(dm.channel_utilization) DESC\n  LIMIT 3\n)\nSELECT\n  time_bucket('5 minutes', dm.time) AS time,\n  COALESCE(nd.short_name || ':' || nd.long_name, dm.node_id) AS metric,\n  AVG(dm.channel_utilization) AS value\nFROM device_metrics dm\nLEFT JOIN node_details nd ON dm.node_id = nd.node_id\nWHERE $__timeFilter(dm.time)\n  AND dm.channel_utilization IS NOT NULL\n  AND dm.channel_utilization > 0\n  AND dm.node_id IN (SELECT node_id FROM top_nodes)\nGROUP BY 1, 2\nORDER BY 1, 2",
           "refId": "A",
-          "useBackend": false
+          "hide": false
         }
       ],
       "title": "Top channel utilizers",
