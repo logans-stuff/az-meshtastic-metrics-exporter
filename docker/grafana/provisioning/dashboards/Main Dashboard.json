@@ -1068,8 +1068,8 @@
     },
     {
       "datasource": {
-        "type": "datasource",
-        "uid": "-- Mixed --"
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
       },
       "description": "Displays types of packets in the selected time range.\n\nFor more details see:\nhttps://buf.build/meshtastic/protobufs/docs/main:meshtastic#meshtastic.PortNum",
       "fieldConfig": {
@@ -1125,18 +1125,14 @@
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
+            "type": "grafana-postgresql-datasource",
             "uid": "PA942B37CCFAF5A81"
           },
-          "disableTextWrap": false,
-          "editorMode": "builder",
-          "expr": "sum by(portnum) (mesh_packet_source_types_total{source_id=~\"$Nodes\"})",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "legendFormat": "__auto",
-          "range": true,
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  MAX(time) AS time,\n  portnum AS metric,\n  COUNT(*) AS value\nFROM mesh_packet_metrics\nWHERE $__timeFilter(time)\n  AND source_id IN ($Nodes)\n  AND portnum IS NOT NULL\nGROUP BY portnum\nORDER BY COUNT(*) DESC",
           "refId": "A",
-          "useBackend": false
+          "hide": false
         }
       ],
       "title": "Packet types for selected time",
