@@ -854,7 +854,7 @@
     },
     {
       "datasource": {
-        "type": "prometheus",
+        "type": "grafana-postgresql-datasource",
         "uid": "PA942B37CCFAF5A81"
       },
       "description": "This panel shows the percentage of airtime used for transmissions in the last hour. Airtime in LoRa networks represents the duration a device occupies the radio frequency channel to send data. It's a critical metric for:\n\nNetwork capacity: Higher airtime usage indicates increased network load.\n\nRegulatory compliance: Many regions limit the total airtime per device.\n\nBattery life: More airtime generally means higher power consumption.\n\nThe data comes from Meshtastic packets, reflecting actual network usage. High percentages may suggest the need for optimization or capacity planning.",
@@ -947,21 +947,14 @@
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
+            "type": "grafana-postgresql-datasource",
             "uid": "PA942B37CCFAF5A81"
           },
-          "disableTextWrap": false,
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "telemetry_app_air_util_tx{node_id=~\"$Nodes\"} > -100\nand\ndelta(telemetry_app_air_util_tx{node_id=~\"$Nodes\"}[1m]) != 0",
           "format": "time_series",
-          "fullMetaSearch": false,
-          "includeNullMetadata": false,
-          "instant": false,
-          "legendFormat": "{{long_name}}",
-          "range": true,
+          "rawQuery": true,
+          "rawSql": "SELECT\n  time_bucket('5 minutes', dm.time) AS time,\n  COALESCE(nd.long_name, dm.node_id) AS metric,\n  AVG(dm.air_util_tx) AS value\nFROM device_metrics dm\nLEFT JOIN node_details nd ON dm.node_id = nd.node_id\nWHERE $__timeFilter(dm.time)\n  AND dm.air_util_tx IS NOT NULL\n  AND dm.air_util_tx > 0\n  AND dm.node_id IN ($Nodes)\nGROUP BY 1, 2\nORDER BY 1, 2",
           "refId": "A",
-          "useBackend": false
+          "hide": false
         }
       ],
       "title": "Duty Cycle (AirUtilTX)",
