@@ -38,7 +38,7 @@ class Processor(ABC):
         self.db_handler = DBHandler(db_pool)
 
     @abstractmethod
-    def process(self, payload: bytes, client_details: ClientDetails):
+    def process(self, payload: bytes, client_details: ClientDetails, **kwargs):
         pass
 
 
@@ -405,7 +405,7 @@ class SimulatorAppProcessor(Processor):
 
 @ProcessorRegistry.register_processor(PortNum.TRACEROUTE_APP)
 class TraceRouteAppProcessor(Processor):
-    def process(self, payload: bytes, client_details: ClientDetails):
+    def process(self, payload: bytes, client_details: ClientDetails, **kwargs):
         logger.debug("Received TRACEROUTE_APP packet")
         traceroute = RouteDiscovery()
         try:
@@ -413,8 +413,26 @@ class TraceRouteAppProcessor(Processor):
         except Exception as e:
             logger.error(f"Failed to parse TRACEROUTE_APP packet: {e}")
             return
-        # No need to store route discovery metrics in TimescaleDB
-        pass
+
+        mesh_packet = kwargs.get('mesh_packet')
+        if not mesh_packet:
+            logger.warning("TRACEROUTE_APP packet received without mesh_packet context, cannot store hop data")
+            return
+
+        route_towards = list(traceroute.route) if traceroute.route else []
+        snr_towards = list(traceroute.snr_towards) if traceroute.snr_towards else []
+        route_back = list(traceroute.route_back) if traceroute.route_back else []
+        snr_back = list(traceroute.snr_back) if traceroute.snr_back else []
+
+        if route_towards or route_back:
+            self.db_handler.update_traceroute_hops(
+                packet_id=mesh_packet.id,
+                source_id=str(getattr(mesh_packet, 'from')),
+                route_towards=route_towards,
+                snr_towards=snr_towards,
+                route_back=route_back,
+                snr_back=snr_back,
+            )
 
 
 @ProcessorRegistry.register_processor(PortNum.NEIGHBORINFO_APP)

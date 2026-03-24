@@ -230,6 +230,46 @@ class DBHandler:
                 """, values)
                 conn.commit()
 
+    def update_traceroute_hops(self, packet_id: int, source_id: str,
+                               route_towards: list, snr_towards: list,
+                               route_back: list, snr_back: list):
+        """Update mesh_packet_metrics with traceroute RouteDiscovery hop data"""
+        with self.db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                # Ensure all hop nodes exist in node_details
+                for hop_node_id in list(route_towards) + list(route_back):
+                    hop_node_id_str = str(hop_node_id)
+                    cur.execute("SELECT 1 FROM node_details WHERE node_id = %s", (hop_node_id_str,))
+                    if not cur.fetchone():
+                        cur.execute("""
+                            INSERT INTO node_details (node_id, short_name, long_name)
+                            VALUES (%s, %s, %s)
+                            ON CONFLICT (node_id) DO NOTHING
+                        """, (hop_node_id_str, 'Unknown', 'Unknown'))
+
+                cur.execute("""
+                    UPDATE mesh_packet_metrics
+                    SET route_towards = %s,
+                        snr_towards = %s,
+                        route_back = %s,
+                        snr_back = %s
+                    WHERE ctid = (
+                        SELECT ctid FROM mesh_packet_metrics
+                        WHERE packet_id = %s AND source_id = %s
+                          AND portnum = 'TRACEROUTE_APP'
+                        ORDER BY time DESC
+                        LIMIT 1
+                    )
+                """, (
+                    route_towards or None,
+                    snr_towards or None,
+                    route_back or None,
+                    snr_back or None,
+                    packet_id,
+                    source_id
+                ))
+                conn.commit()
+
     def get_latest_metrics(self, node_id: str) -> Dict[str, Any]:
         """Get the latest metrics for a node from the node_telemetry view"""
         with self.db_pool.connection() as conn:

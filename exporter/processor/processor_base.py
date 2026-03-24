@@ -90,7 +90,7 @@ class MessageProcessor:
             self.process_simple_packet_details(destination_client_details, mesh_packet, port_num, source_client_details)
 
             processor = ProcessorRegistry.get_processor(port_num)(self.db_pool)
-            processor.process(payload, client_details=source_client_details)
+            processor.process(payload, client_details=source_client_details, mesh_packet=mesh_packet)
         except Exception as e:
             logging.warning(f"Failed to process message: {e}")
             return

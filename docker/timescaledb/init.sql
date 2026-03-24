@@ -222,6 +222,11 @@ CREATE TABLE mesh_packet_metrics
     next_hop             BIGINT,
     transport_mechanism  VARCHAR,
     pki_encrypted        BOOLEAN,
+    -- Traceroute RouteDiscovery fields (populated for TRACEROUTE_APP packets)
+    route_towards        BIGINT[],   -- intermediate hop node IDs towards destination
+    snr_towards          FLOAT[],    -- SNR at each hop towards destination
+    route_back           BIGINT[],   -- intermediate hop node IDs back to source
+    snr_back             FLOAT[],    -- SNR at each hop back to source
     FOREIGN KEY (source_id) REFERENCES node_details (node_id),
     FOREIGN KEY (destination_id) REFERENCES node_details (node_id)
 );
