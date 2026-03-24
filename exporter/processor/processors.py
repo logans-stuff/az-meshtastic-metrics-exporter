@@ -38,7 +38,7 @@ class Processor(ABC):
         self.db_handler = DBHandler(db_pool)
 
     @abstractmethod
-    def process(self, payload: bytes, client_details: ClientDetails):
+    def process(self, payload: bytes, client_details: ClientDetails, **kwargs):
         pass
 
 
@@ -405,7 +405,7 @@ class SimulatorAppProcessor(Processor):
 
 @ProcessorRegistry.register_processor(PortNum.TRACEROUTE_APP)
 class TraceRouteAppProcessor(Processor):
-    def process(self, payload: bytes, client_details: ClientDetails):
+    def process(self, payload: bytes, client_details: ClientDetails, **kwargs):
         logger.debug("Received TRACEROUTE_APP packet")
         traceroute = RouteDiscovery()
         try:
@@ -413,8 +413,37 @@ class TraceRouteAppProcessor(Processor):
         except Exception as e:
             logger.error(f"Failed to parse TRACEROUTE_APP packet: {e}")
             return
-        # No need to store route discovery metrics in TimescaleDB
-        pass
+
+        mesh_packet = kwargs.get('mesh_packet')
+        if not mesh_packet:
+            logger.warning("TRACEROUTE_APP packet received without mesh_packet context, cannot store hop data")
+            return
+
+        packet_id = mesh_packet.id
+        source_id = str(getattr(mesh_packet, 'from'))
+        destination_id = str(getattr(mesh_packet, 'to'))
+
+        # Store forward route hops (route towards destination)
+        if traceroute.route:
+            self.db_handler.store_traceroute_metrics(
+                packet_id=packet_id,
+                source_id=source_id,
+                destination_id=destination_id,
+                route=list(traceroute.route),
+                snr_list=list(traceroute.snr_towards),
+                direction='towards'
+            )
+
+        # Store return route hops (route back to source)
+        if traceroute.route_back:
+            self.db_handler.store_traceroute_metrics(
+                packet_id=packet_id,
+                source_id=source_id,
+                destination_id=destination_id,
+                route=list(traceroute.route_back),
+                snr_list=list(traceroute.snr_back),
+                direction='back'
+            )
 
 
 @ProcessorRegistry.register_processor(PortNum.NEIGHBORINFO_APP)

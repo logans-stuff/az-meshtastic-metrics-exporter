@@ -230,6 +230,26 @@ SELECT create_hypertable('mesh_packet_metrics', 'time');
 CREATE INDEX idx_mesh_packet_metrics_source ON mesh_packet_metrics (source_id, time DESC);
 CREATE INDEX idx_mesh_packet_metrics_dest ON mesh_packet_metrics (destination_id, time DESC);
 
+-- Traceroute metrics (stores intermediate hop nodes from RouteDiscovery)
+CREATE TABLE traceroute_metrics
+(
+    time                 TIMESTAMPTZ NOT NULL,
+    packet_id            BIGINT      NOT NULL,
+    source_id            VARCHAR     NOT NULL,
+    destination_id       VARCHAR     NOT NULL,
+    hop_index            INT         NOT NULL,
+    hop_node_id          VARCHAR     NOT NULL,
+    direction            VARCHAR     NOT NULL,  -- 'towards' or 'back'
+    snr                  FLOAT,
+    FOREIGN KEY (source_id) REFERENCES node_details (node_id),
+    FOREIGN KEY (destination_id) REFERENCES node_details (node_id),
+    FOREIGN KEY (hop_node_id) REFERENCES node_details (node_id)
+);
+
+SELECT create_hypertable('traceroute_metrics', 'time');
+CREATE INDEX idx_traceroute_metrics_packet ON traceroute_metrics (packet_id, time DESC);
+CREATE INDEX idx_traceroute_metrics_hop_node ON traceroute_metrics (hop_node_id, time DESC);
+
 -- Create a function to update node_configurations from metrics tables
 CREATE OR REPLACE FUNCTION update_node_configurations()
     RETURNS TRIGGER AS
