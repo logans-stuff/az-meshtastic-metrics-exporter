@@ -230,21 +230,15 @@ class DBHandler:
                 """, values)
                 conn.commit()
 
-    def store_traceroute_metrics(self, packet_id: int, source_id: str, destination_id: str,
-                                    route: list, snr_list: list, direction: str):
-        """Store traceroute hop nodes in TimescaleDB"""
-        if not route:
-            return
-
-        now = datetime.now()
-
+    def update_traceroute_hops(self, packet_id: int, source_id: str,
+                               route_towards: list, snr_towards: list,
+                               route_back: list, snr_back: list):
+        """Update mesh_packet_metrics with traceroute RouteDiscovery hop data"""
         with self.db_pool.connection() as conn:
             with conn.cursor() as cur:
-                for hop_index, hop_node_id in enumerate(route):
+                # Ensure all hop nodes exist in node_details
+                for hop_node_id in list(route_towards) + list(route_back):
                     hop_node_id_str = str(hop_node_id)
-                    snr = snr_list[hop_index] if hop_index < len(snr_list) else None
-
-                    # Ensure hop node exists in node_details
                     cur.execute("SELECT 1 FROM node_details WHERE node_id = %s", (hop_node_id_str,))
                     if not cur.fetchone():
                         cur.execute("""
@@ -253,14 +247,27 @@ class DBHandler:
                             ON CONFLICT (node_id) DO NOTHING
                         """, (hop_node_id_str, 'Unknown', 'Unknown'))
 
-                    cur.execute("""
-                        INSERT INTO traceroute_metrics (
-                            time, packet_id, source_id, destination_id,
-                            hop_index, hop_node_id, direction, snr
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (now, packet_id, source_id, destination_id,
-                          hop_index, hop_node_id_str, direction, snr))
-
+                cur.execute("""
+                    UPDATE mesh_packet_metrics
+                    SET route_towards = %s,
+                        snr_towards = %s,
+                        route_back = %s,
+                        snr_back = %s
+                    WHERE ctid = (
+                        SELECT ctid FROM mesh_packet_metrics
+                        WHERE packet_id = %s AND source_id = %s
+                          AND portnum = 'TRACEROUTE_APP'
+                        ORDER BY time DESC
+                        LIMIT 1
+                    )
+                """, (
+                    route_towards or None,
+                    snr_towards or None,
+                    route_back or None,
+                    snr_back or None,
+                    packet_id,
+                    source_id
+                ))
                 conn.commit()
 
     def get_latest_metrics(self, node_id: str) -> Dict[str, Any]:

@@ -419,30 +419,19 @@ class TraceRouteAppProcessor(Processor):
             logger.warning("TRACEROUTE_APP packet received without mesh_packet context, cannot store hop data")
             return
 
-        packet_id = mesh_packet.id
-        source_id = str(getattr(mesh_packet, 'from'))
-        destination_id = str(getattr(mesh_packet, 'to'))
+        route_towards = list(traceroute.route) if traceroute.route else []
+        snr_towards = list(traceroute.snr_towards) if traceroute.snr_towards else []
+        route_back = list(traceroute.route_back) if traceroute.route_back else []
+        snr_back = list(traceroute.snr_back) if traceroute.snr_back else []
 
-        # Store forward route hops (route towards destination)
-        if traceroute.route:
-            self.db_handler.store_traceroute_metrics(
-                packet_id=packet_id,
-                source_id=source_id,
-                destination_id=destination_id,
-                route=list(traceroute.route),
-                snr_list=list(traceroute.snr_towards),
-                direction='towards'
-            )
-
-        # Store return route hops (route back to source)
-        if traceroute.route_back:
-            self.db_handler.store_traceroute_metrics(
-                packet_id=packet_id,
-                source_id=source_id,
-                destination_id=destination_id,
-                route=list(traceroute.route_back),
-                snr_list=list(traceroute.snr_back),
-                direction='back'
+        if route_towards or route_back:
+            self.db_handler.update_traceroute_hops(
+                packet_id=mesh_packet.id,
+                source_id=str(getattr(mesh_packet, 'from')),
+                route_towards=route_towards,
+                snr_towards=snr_towards,
+                route_back=route_back,
+                snr_back=snr_back,
             )
 
 
