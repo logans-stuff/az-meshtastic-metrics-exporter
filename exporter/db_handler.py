@@ -230,6 +230,39 @@ class DBHandler:
                 """, values)
                 conn.commit()
 
+    def store_traceroute_metrics(self, packet_id: int, source_id: str, destination_id: str,
+                                    route: list, snr_list: list, direction: str):
+        """Store traceroute hop nodes in TimescaleDB"""
+        if not route:
+            return
+
+        now = datetime.now()
+
+        with self.db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                for hop_index, hop_node_id in enumerate(route):
+                    hop_node_id_str = str(hop_node_id)
+                    snr = snr_list[hop_index] if hop_index < len(snr_list) else None
+
+                    # Ensure hop node exists in node_details
+                    cur.execute("SELECT 1 FROM node_details WHERE node_id = %s", (hop_node_id_str,))
+                    if not cur.fetchone():
+                        cur.execute("""
+                            INSERT INTO node_details (node_id, short_name, long_name)
+                            VALUES (%s, %s, %s)
+                            ON CONFLICT (node_id) DO NOTHING
+                        """, (hop_node_id_str, 'Unknown', 'Unknown'))
+
+                    cur.execute("""
+                        INSERT INTO traceroute_metrics (
+                            time, packet_id, source_id, destination_id,
+                            hop_index, hop_node_id, direction, snr
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (now, packet_id, source_id, destination_id,
+                          hop_index, hop_node_id_str, direction, snr))
+
+                conn.commit()
+
     def get_latest_metrics(self, node_id: str) -> Dict[str, Any]:
         """Get the latest metrics for a node from the node_telemetry view"""
         with self.db_pool.connection() as conn:
