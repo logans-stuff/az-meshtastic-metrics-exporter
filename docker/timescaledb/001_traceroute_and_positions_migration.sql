@@ -1,3 +1,16 @@
+-- Migration: Traceroute dead-end fix + Position history
+--
+-- For existing TimescaleDB deployments, run this script manually against your database:
+--
+--   psql -h <host> -U <user> -d <database> -f docker/timescaledb/001_traceroute_and_positions_migration.sql
+--
+-- Or if using Docker:
+--
+--   docker exec -i <timescaledb_container> psql -U <user> -d <database> < docker/timescaledb/001_traceroute_and_positions_migration.sql
+--
+-- This is safe to run on a live database — it does not drop data or require downtime.
+-- New deployments using init.sql do not need this script.
+
 -- Issue 1: Fix dropped traceroutes from dead ends by expanding the unique constraint boundary
 -- to consider the specific node that relayed it. TimescaleDB hypertables require partitioning
 -- column 'time' as part of the unique key natively.
