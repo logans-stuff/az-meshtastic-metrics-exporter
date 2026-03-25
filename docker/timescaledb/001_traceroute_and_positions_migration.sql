@@ -3,9 +3,8 @@
 -- column 'time' as part of the unique key natively.
 ALTER TABLE mesh_packet_metrics DROP CONSTRAINT IF EXISTS mesh_packet_metrics_packet_id_key;
 
-ALTER TABLE mesh_packet_metrics
-ADD CONSTRAINT mesh_packet_metrics_unique_packet
-UNIQUE (time, packet_id, source_id, relay_node);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mesh_packet_metrics_unique_packet
+ON mesh_packet_metrics (time, packet_id, source_id, COALESCE(relay_node, 0));
 
 -- Issue 2: Retain position packet history to enable GPS drift calculations for stationary nodes.
 CREATE TABLE position_metrics (

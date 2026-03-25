@@ -241,11 +241,11 @@ CREATE TABLE mesh_packet_metrics
     route_back           BIGINT[],   -- intermediate hop node IDs back to source
     snr_back             FLOAT[],    -- SNR at each hop back to source
     FOREIGN KEY (source_id) REFERENCES node_details (node_id),
-    FOREIGN KEY (destination_id) REFERENCES node_details (node_id),
-    UNIQUE (time, packet_id, source_id, relay_node)
+    FOREIGN KEY (destination_id) REFERENCES node_details (node_id)
 );
 
 SELECT create_hypertable('mesh_packet_metrics', 'time');
+CREATE UNIQUE INDEX idx_mesh_packet_metrics_unique_packet ON mesh_packet_metrics (time, packet_id, source_id, COALESCE(relay_node, 0));
 CREATE INDEX idx_mesh_packet_metrics_source ON mesh_packet_metrics (source_id, time DESC);
 CREATE INDEX idx_mesh_packet_metrics_dest ON mesh_packet_metrics (destination_id, time DESC);
 

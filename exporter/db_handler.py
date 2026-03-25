@@ -226,7 +226,7 @@ class DBHandler:
                         {columns_str}
                     ) VALUES (
                         {placeholders}
-                    ) ON CONFLICT (time, packet_id, source_id, relay_node) DO NOTHING
+                    ) ON CONFLICT (time, packet_id, source_id, COALESCE(relay_node, 0)) DO NOTHING
                 """, values)
                 conn.commit()
 
