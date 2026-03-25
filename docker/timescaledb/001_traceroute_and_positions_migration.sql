@@ -8,7 +8,7 @@ ADD CONSTRAINT mesh_packet_metrics_unique_packet
 UNIQUE (time, packet_id, source_id, relay_node);
 
 -- Issue 2: Retain position packet history to enable GPS drift calculations for stationary nodes.
-CREATE TABLE IF NOT EXISTS position_metrics (
+CREATE TABLE position_metrics (
     time TIMESTAMPTZ NOT NULL,
     node_id VARCHAR NOT NULL,
     latitude INT,

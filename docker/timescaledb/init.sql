@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS node_details
 );
 
 -- Position history for GPS drift
-CREATE TABLE IF NOT EXISTS position_metrics (
+CREATE TABLE position_metrics (
     time TIMESTAMPTZ NOT NULL,
     node_id VARCHAR NOT NULL,
     latitude INT,
