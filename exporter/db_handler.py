@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from psycopg_pool import ConnectionPool
 
@@ -226,11 +226,11 @@ class DBHandler:
                         {columns_str}
                     ) VALUES (
                         {placeholders}
-                    ) ON CONFLICT DO NOTHING
+                    ) ON CONFLICT (time, packet_id, source_id, relay_node) DO NOTHING
                 """, values)
                 conn.commit()
 
-    def update_traceroute_hops(self, packet_id: int, source_id: str, relay_node: int,
+    def update_traceroute_hops(self, packet_id: int, source_id: str, relay_node: Optional[int],
                                route_towards: list, snr_towards: list,
                                route_back: list, snr_back: list):
         """Update mesh_packet_metrics with traceroute RouteDiscovery hop data"""
