@@ -116,6 +116,10 @@ class PositionAppProcessor(Processor):
                             WHERE node_id = %s
                             """, (position.latitude_i, position.longitude_i, position.altitude, position.precision_bits,
                                   datetime.now().isoformat(), client_details.node_id))
+                cur.execute("""
+                            INSERT INTO position_metrics (time, node_id, latitude, longitude, altitude, precision)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            """, (datetime.now(), client_details.node_id, position.latitude_i, position.longitude_i, position.altitude, position.precision_bits))
                 conn.commit()
 
             self.db_handler.execute_db_operation(db_operation)
@@ -424,10 +428,13 @@ class TraceRouteAppProcessor(Processor):
         route_back = list(traceroute.route_back) if traceroute.route_back else []
         snr_back = list(traceroute.snr_back) if traceroute.snr_back else []
 
+        relay_node = getattr(mesh_packet, 'relay_node', None)
+
         if route_towards or route_back:
             self.db_handler.update_traceroute_hops(
                 packet_id=mesh_packet.id,
                 source_id=str(getattr(mesh_packet, 'from')),
+                relay_node=relay_node,
                 route_towards=route_towards,
                 snr_towards=snr_towards,
                 route_back=route_back,

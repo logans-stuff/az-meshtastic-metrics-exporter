@@ -44,6 +44,19 @@ CREATE TABLE IF NOT EXISTS node_details
     updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+-- Issue 2: Retain position history for GPS drift
+CREATE TABLE position_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    node_id VARCHAR NOT NULL,
+    latitude INT,
+    longitude INT,
+    altitude INT,
+    precision INT,
+    FOREIGN KEY (node_id) REFERENCES node_details (node_id)
+);
+SELECT create_hypertable('position_metrics', 'time');
+CREATE INDEX idx_position_metrics_node_id ON position_metrics (node_id, time DESC);
+
 CREATE TABLE IF NOT EXISTS node_neighbors
 (
     id          SERIAL PRIMARY KEY,
@@ -228,7 +241,8 @@ CREATE TABLE mesh_packet_metrics
     route_back           BIGINT[],   -- intermediate hop node IDs back to source
     snr_back             FLOAT[],    -- SNR at each hop back to source
     FOREIGN KEY (source_id) REFERENCES node_details (node_id),
-    FOREIGN KEY (destination_id) REFERENCES node_details (node_id)
+    FOREIGN KEY (destination_id) REFERENCES node_details (node_id),
+    UNIQUE (time, packet_id, source_id, relay_node)
 );
 
 SELECT create_hypertable('mesh_packet_metrics', 'time');
@@ -414,6 +428,7 @@ SELECT add_retention_policy('air_quality_metrics', INTERVAL '30 days');
 SELECT add_retention_policy('power_metrics', INTERVAL '30 days');
 SELECT add_retention_policy('pax_counter_metrics', INTERVAL '30 days');
 SELECT add_retention_policy('mesh_packet_metrics', INTERVAL '30 days');
+SELECT add_retention_policy('position_metrics', INTERVAL '30 days');
 
 -- Create views for easier querying
 CREATE OR REPLACE VIEW node_telemetry AS
