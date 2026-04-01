@@ -66,18 +66,29 @@ def handle_message(client, userdata, message):
         envelope.ParseFromString(message.payload)
         packet: MeshPacket = envelope.packet
 
+        # Extract reporting gateway from topic
+        topic_parts = message.topic.split('/')
+        reporting_gateway_id = None
+        if topic_parts and topic_parts[-1].startswith('!'):
+            try:
+                reporting_gateway_id = str(int(topic_parts[-1][1:], 16))
+            except ValueError:
+                pass
+
+        observation_id = f"{packet.id}_{reporting_gateway_id}"
+
         with connection_pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id FROM messages WHERE id = %s", (str(packet.id),))
+                cur.execute("SELECT id FROM messages WHERE id = %s", (observation_id,))
                 if cur.fetchone() is not None:
-                    logging.debug(f"Packet {packet.id} already processed")
+                    logging.debug(f"Packet {observation_id} already processed")
                     return
 
                 cur.execute("INSERT INTO messages (id, received_at) VALUES (%s, NOW()) ON CONFLICT (id) DO NOTHING",
-                            (str(packet.id),))
+                            (observation_id,))
                 conn.commit()
         processor.process_mqtt(message.topic, envelope, packet)
-        processor.process(packet)
+        processor.process(packet, reporting_gateway_id)
     except Exception as e:
         logging.error(f"Failed to handle message: {e}")
         return

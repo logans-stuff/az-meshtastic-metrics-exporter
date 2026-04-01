@@ -429,13 +429,10 @@ class TraceRouteAppProcessor(Processor):
         route_back = list(traceroute.route_back) if traceroute.route_back else []
         snr_back = list(traceroute.snr_back) if traceroute.snr_back else []
 
-        relay_node = getattr(mesh_packet, 'relay_node', None)
-
         if route_towards or route_back:
             self.db_handler.update_traceroute_hops(
                 packet_id=mesh_packet.id,
                 source_id=str(getattr(mesh_packet, 'from')),
-                relay_node=relay_node,
                 route_towards=route_towards,
                 snr_towards=snr_towards,
                 route_back=route_back,
