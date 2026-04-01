@@ -235,6 +235,7 @@ CREATE TABLE mesh_packet_metrics
     next_hop             BIGINT,
     transport_mechanism  VARCHAR,
     pki_encrypted        BOOLEAN,
+    reporting_gateway    VARCHAR DEFAULT NULL,
     -- Traceroute RouteDiscovery fields (populated for TRACEROUTE_APP packets)
     route_towards        BIGINT[],   -- intermediate hop node IDs towards destination
     snr_towards          FLOAT[],    -- SNR at each hop towards destination
@@ -242,12 +243,13 @@ CREATE TABLE mesh_packet_metrics
     snr_back             FLOAT[],    -- SNR at each hop back to source
     FOREIGN KEY (source_id) REFERENCES node_details (node_id),
     FOREIGN KEY (destination_id) REFERENCES node_details (node_id),
-    UNIQUE (time, packet_id, source_id, relay_node)
+    UNIQUE (time, packet_id, source_id, reporting_gateway)
 );
 
 SELECT create_hypertable('mesh_packet_metrics', 'time');
 CREATE INDEX idx_mesh_packet_metrics_source ON mesh_packet_metrics (source_id, time DESC);
 CREATE INDEX idx_mesh_packet_metrics_dest ON mesh_packet_metrics (destination_id, time DESC);
+CREATE INDEX idx_mesh_packet_metrics_gateway ON mesh_packet_metrics (reporting_gateway, time DESC);
 
 -- Create a function to update node_configurations from metrics tables
 CREATE OR REPLACE FUNCTION update_node_configurations()

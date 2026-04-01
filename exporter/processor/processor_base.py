@@ -49,7 +49,7 @@ class MessageProcessor:
                 gateway_node_id = str(int(service_envelope.gateway_id[1:], 16))
                 # Node configuration update is now handled by the database timestamps
 
-    def process(self, mesh_packet: MeshPacket):
+    def process(self, mesh_packet: MeshPacket, reporting_gateway: str = None):
         try:
             if getattr(mesh_packet, 'encrypted'):
                 key_bytes = base64.b64decode(os.getenv('MQTT_SERVER_KEY', '1PG7OiApB1nwvP+rz05pAQ==').encode('ascii'))
@@ -87,7 +87,7 @@ class MessageProcessor:
                                                            short_name='Hidden',
                                                            long_name='Hidden')
 
-            self.process_simple_packet_details(destination_client_details, mesh_packet, port_num, source_client_details)
+            self.process_simple_packet_details(destination_client_details, mesh_packet, port_num, source_client_details, reporting_gateway)
 
             processor = ProcessorRegistry.get_processor(port_num)(self.db_pool)
             processor.process(payload, client_details=source_client_details, mesh_packet=mesh_packet)
@@ -104,7 +104,7 @@ class MessageProcessor:
         return 'UNKNOWN_PORT'
 
     def process_simple_packet_details(self, destination_client_details, mesh_packet: MeshPacket, port_num,
-                                      source_client_details):
+                                      source_client_details, reporting_gateway: str = None):
         # Resolve transport_mechanism enum to its name string
         transport_name = None
         transport_val = getattr(mesh_packet, 'transport_mechanism', None)
@@ -134,6 +134,7 @@ class MessageProcessor:
                 'next_hop': getattr(mesh_packet, 'next_hop', None) or None,
                 'transport_mechanism': transport_name,
                 'pki_encrypted': getattr(mesh_packet, 'pki_encrypted', False),
+                'reporting_gateway': reporting_gateway,
             }
         )
 
