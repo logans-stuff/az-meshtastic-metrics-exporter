@@ -41,7 +41,7 @@ def handle_message(client, userdata, message):
         
         # New logging logic (After): Includes the gateway ID so multiple gates can report the same packet.id
         topic_parts = message.topic.split('/')
-        reporting_gateway_id = 'unknown'
+        reporting_gateway_id = None
         if topic_parts and topic_parts[-1].startswith('!'):
             try:
                 reporting_gateway_id = str(int(topic_parts[-1][1:], 16))
