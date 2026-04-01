@@ -49,7 +49,33 @@ class MessageProcessor:
                 gateway_node_id = str(int(service_envelope.gateway_id[1:], 16))
                 # Node configuration update is now handled by the database timestamps
 
-    def process(self, mesh_packet: MeshPacket, reporting_gateway: str = None):
+    @staticmethod
+    def extract_channel_from_topic(topic: str) -> str:
+        topic_parts = topic.split('/')
+        known_channels = {
+            'longfast', 'mediumfast', 'shortfast', 'longslow', 'shortslow', 'mediumslow',
+            'verylongslow', 'verylongfast'
+        }
+        for part in topic_parts:
+            normalized = ''.join(ch for ch in part.lower() if ch.isalnum())
+            if normalized in known_channels:
+                return part
+        return None
+
+    def update_node_heard_on(self, node_id: str, topic: str):
+        channel = self.extract_channel_from_topic(topic)
+        with self.db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE node_details
+                    SET last_heard_topic = %s,
+                        last_heard_channel = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE node_id = %s
+                """, (topic, channel, node_id))
+            conn.commit()
+
+    def process(self, mesh_packet: MeshPacket, reporting_gateway: str = None, topic: str = None):
         try:
             if getattr(mesh_packet, 'encrypted'):
                 key_bytes = base64.b64decode(os.getenv('MQTT_SERVER_KEY', '1PG7OiApB1nwvP+rz05pAQ==').encode('ascii'))
@@ -76,6 +102,8 @@ class MessageProcessor:
 
             source_node_id = getattr(mesh_packet, 'from')
             source_client_details = self._get_client_details(source_node_id)
+            if topic:
+                self.update_node_heard_on(source_client_details.node_id, topic)
             if os.getenv('MESH_HIDE_SOURCE_DATA', 'false') == 'true':
                 source_client_details = ClientDetails(node_id=source_client_details.node_id, short_name='Hidden',
                                                       long_name='Hidden')

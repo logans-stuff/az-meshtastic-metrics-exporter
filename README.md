@@ -34,7 +34,7 @@ The system uses PostgreSQL with TimescaleDB extension:
 #### Regular Tables
 
 1. **messages** - Deduplication table with auto-expiry
-2. **node_details** - Node information (ID, names, hardware, location, MQTT status)
+2. **node_details** - Node information (ID, names, hardware, location, MQTT status, last-heard MQTT topic/channel, direct MQTT topic)
 3. **node_neighbors** - Network topology from NeighborInfo packets
 4. **node_configurations** - Module configurations and update intervals
 
@@ -145,6 +145,35 @@ The exporter:
 3. Parses Protocol Buffer messages
 4. Stores metrics in TimescaleDB hypertables
 5. Updates node details and topology in PostgreSQL tables
+
+## Patching an Existing Deployment
+
+To re-roll the exporter container with updated files (copy new files over old, remove old container/images, rebuild, recreate, then run DB migration):
+
+```bash
+./scripts/patch_node_topic_channel_tracking.sh
+```
+
+You can also target another compose project directory:
+
+```bash
+./scripts/patch_node_topic_channel_tracking.sh /path/to/meshtastic-metrics-exporter
+```
+
+### Database-only commands
+
+If you only need to apply the schema update manually, run:
+
+```bash
+docker exec -i <timescaledb_container> psql -U postgres -d meshtastic \
+  -f /dev/stdin < docker/timescaledb/003_node_topic_channel_tracking.sql
+```
+
+To verify:
+
+```bash
+docker exec -it <timescaledb_container> psql -U postgres -d meshtastic -c "\d+ node_details"
+```
 
 ## Contributing
 

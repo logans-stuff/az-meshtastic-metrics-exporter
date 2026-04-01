@@ -29,13 +29,13 @@ def handle_connect(client, userdata, flags, reason_code, properties):
             f"Error subscribing to topics: {err} with code {code} for {topics_tuples} and reason code {reason_code}")
 
 
-def update_node_status(node_number, status):
+def update_node_status_with_topic(node_number, status, topic):
     with connection_pool.connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO node_details (node_id, mqtt_status, short_name, long_name) VALUES (%s, %s, %s, %s)"
+            cur.execute("INSERT INTO node_details (node_id, mqtt_status, mqtt_direct_topic, short_name, long_name) VALUES (%s, %s, %s, %s, %s)"
                         "ON CONFLICT(node_id)"
-                        "DO UPDATE SET mqtt_status = %s",
-                        (node_number, status, 'Unknown (MQTT)', 'Unknown (MQTT)', status))
+                        "DO UPDATE SET mqtt_status = %s, mqtt_direct_topic = %s",
+                        (node_number, status, topic, 'Unknown (MQTT)', 'Unknown (MQTT)', status, topic))
             conn.commit()
 
 
@@ -55,7 +55,7 @@ def handle_message(client, userdata, message):
             user_id = message.topic.split('/')[-1]  # Hexadecimal user ID
             if user_id[0] == '!':
                 node_number = str(int(user_id[1:], 16))
-                update_node_status(node_number, message.payload.decode('utf-8'))
+                update_node_status_with_topic(node_number, message.payload.decode('utf-8'), message.topic)
             return
         except Exception as e:
             logging.error(f"Failed to handle user MQTT stat: {e}")
@@ -88,7 +88,7 @@ def handle_message(client, userdata, message):
                             (observation_id,))
                 conn.commit()
         processor.process_mqtt(message.topic, envelope, packet)
-        processor.process(packet, reporting_gateway_id)
+        processor.process(packet, reporting_gateway_id, message.topic)
     except Exception as e:
         logging.error(f"Failed to handle message: {e}")
         return

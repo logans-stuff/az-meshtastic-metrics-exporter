@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS node_details
     hardware_model VARCHAR,
     role           VARCHAR,
     mqtt_status    VARCHAR   default 'none',
+    last_heard_topic VARCHAR,
+    last_heard_channel VARCHAR,
+    mqtt_direct_topic VARCHAR,
     -- Location Data
     longitude      INT,
     latitude       INT,
