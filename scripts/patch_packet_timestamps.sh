@@ -6,7 +6,7 @@
 set -euo pipefail
 
 REPO="logans-stuff/az-meshtastic-metrics-exporter"
-BRANCH="claude/review-datetime-handling-rK0sn"
+BRANCH="main"
 BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 
 FILES=(
