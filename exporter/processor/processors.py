@@ -104,8 +104,20 @@ class PositionAppProcessor(Processor):
             logger.error(f"Failed to parse POSITION_APP packet: {e}")
             return
 
+        mesh_packet = kwargs.get('mesh_packet')
+        packet_id = getattr(mesh_packet, 'id', None) if mesh_packet else None
+        rx_time = mesh_packet.rx_time if mesh_packet else None
+        message_timestamp = position.time if position.time else None
+
         if position.latitude_i != 0 and position.longitude_i != 0:
             def db_operation(cur, conn):
+                if packet_id is not None:
+                    cur.execute("SELECT 1 FROM position_metrics WHERE packet_id = %s AND node_id = %s LIMIT 1",
+                                (packet_id, client_details.node_id))
+                    if cur.fetchone():
+                        logger.debug(f"Position packet {packet_id} for node {client_details.node_id} already processed")
+                        return
+
                 now = datetime.now()
                 cur.execute("""
                             UPDATE node_details
@@ -118,9 +130,10 @@ class PositionAppProcessor(Processor):
                             """, (position.latitude_i, position.longitude_i, position.altitude, position.precision_bits,
                                   now.isoformat(), client_details.node_id))
                 cur.execute("""
-                            INSERT INTO position_metrics (time, node_id, latitude, longitude, altitude, precision)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                            """, (now, client_details.node_id, position.latitude_i, position.longitude_i, position.altitude, position.precision_bits))
+                            INSERT INTO position_metrics (time, node_id, latitude, longitude, altitude, precision, packet_id, rx_time, message_timestamp)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """, (now, client_details.node_id, position.latitude_i, position.longitude_i, position.altitude, position.precision_bits,
+                                  packet_id, rx_time, message_timestamp))
                 conn.commit()
 
             self.db_handler.execute_db_operation(db_operation)
@@ -279,10 +292,14 @@ class PaxCounterAppProcessor(Processor):
             logger.error(f"Failed to parse PAXCOUNTER_APP packet: {e}")
             return
 
+        mesh_packet = kwargs.get('mesh_packet')
+        rx_time = mesh_packet.rx_time if mesh_packet else None
+
         # Store PAX counter metrics in TimescaleDB
         self.db_handler.store_pax_counter_metrics(client_details.node_id, {
             'wifi_stations': getattr(paxcounter, 'wifi', 0),
-            'ble_beacons': getattr(paxcounter, 'ble', 0)
+            'ble_beacons': getattr(paxcounter, 'ble', 0),
+            'rx_time': rx_time,
         })
 
 
@@ -325,6 +342,10 @@ class TelemetryAppProcessor(Processor):
             logger.error(f"Failed to parse TELEMETRY_APP packet: {e}")
             return
 
+        mesh_packet = kwargs.get('mesh_packet')
+        rx_time = mesh_packet.rx_time if mesh_packet else None
+        message_timestamp = telemetry.time if telemetry.time else None
+
         if telemetry.HasField('device_metrics'):
             # Node configuration update is now handled by the database timestamps
             device_metrics: DeviceMetrics = telemetry.device_metrics
@@ -335,7 +356,9 @@ class TelemetryAppProcessor(Processor):
                 'voltage': getattr(device_metrics, 'voltage', 0),
                 'channel_utilization': getattr(device_metrics, 'channel_utilization', 0),
                 'air_util_tx': getattr(device_metrics, 'air_util_tx', 0),
-                'uptime_seconds': getattr(device_metrics, 'uptime_seconds', 0)
+                'uptime_seconds': getattr(device_metrics, 'uptime_seconds', 0),
+                'rx_time': rx_time,
+                'message_timestamp': message_timestamp,
             })
 
         if telemetry.HasField('environment_metrics'):
@@ -356,7 +379,9 @@ class TelemetryAppProcessor(Processor):
                 'uv_lux': getattr(environment_metrics, 'uv_lux', 0),
                 'wind_direction': getattr(environment_metrics, 'wind_direction', 0),
                 'wind_speed': getattr(environment_metrics, 'wind_speed', 0),
-                'weight': getattr(environment_metrics, 'weight', 0)
+                'weight': getattr(environment_metrics, 'weight', 0),
+                'rx_time': rx_time,
+                'message_timestamp': message_timestamp,
             })
 
         if telemetry.HasField('air_quality_metrics'):
@@ -376,7 +401,9 @@ class TelemetryAppProcessor(Processor):
                 'particles_10um': getattr(air_quality_metrics, 'particles_10um', 0),
                 'particles_25um': getattr(air_quality_metrics, 'particles_25um', 0),
                 'particles_50um': getattr(air_quality_metrics, 'particles_50um', 0),
-                'particles_100um': getattr(air_quality_metrics, 'particles_100um', 0)
+                'particles_100um': getattr(air_quality_metrics, 'particles_100um', 0),
+                'rx_time': rx_time,
+                'message_timestamp': message_timestamp,
             })
 
         if telemetry.HasField('power_metrics'):
@@ -390,7 +417,9 @@ class TelemetryAppProcessor(Processor):
                 'ch2_voltage': getattr(power_metrics, 'ch2_voltage', 0),
                 'ch2_current': getattr(power_metrics, 'ch2_current', 0),
                 'ch3_voltage': getattr(power_metrics, 'ch3_voltage', 0),
-                'ch3_current': getattr(power_metrics, 'ch3_current', 0)
+                'ch3_current': getattr(power_metrics, 'ch3_current', 0),
+                'rx_time': rx_time,
+                'message_timestamp': message_timestamp,
             })
 
 

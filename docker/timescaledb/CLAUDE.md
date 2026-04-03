@@ -12,6 +12,7 @@ Treat `init.sql` and the numbered migration files as a coordinated set. Do not u
 - `001_traceroute_and_positions_migration.sql`: older traceroute/position history migration
 - `002_reporting_gateway_migration.sql`: reporting gateway uniqueness migration
 - `003_node_topic_channel_tracking.sql`: node topic/channel tracking migration
+- `004_add_packet_timestamps.sql`: adds rx_time and message_timestamp to metric hypertables
 
 ## Review Focus
 
