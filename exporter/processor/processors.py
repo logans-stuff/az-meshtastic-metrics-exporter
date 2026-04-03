@@ -104,8 +104,17 @@ class PositionAppProcessor(Processor):
             logger.error(f"Failed to parse POSITION_APP packet: {e}")
             return
 
+        mesh_packet = kwargs.get('mesh_packet')
+        packet_id = getattr(mesh_packet, 'id', None) if mesh_packet else None
+
         if position.latitude_i != 0 and position.longitude_i != 0:
             def db_operation(cur, conn):
+                if packet_id is not None:
+                    cur.execute("SELECT 1 FROM position_metrics WHERE packet_id = %s AND node_id = %s LIMIT 1", (packet_id, client_details.node_id))
+                    if cur.fetchone():
+                        logger.debug(f"Position packet {packet_id} for node {client_details.node_id} already processed")
+                        return
+
                 now = datetime.now()
                 cur.execute("""
                             UPDATE node_details
@@ -118,9 +127,9 @@ class PositionAppProcessor(Processor):
                             """, (position.latitude_i, position.longitude_i, position.altitude, position.precision_bits,
                                   now.isoformat(), client_details.node_id))
                 cur.execute("""
-                            INSERT INTO position_metrics (time, node_id, latitude, longitude, altitude, precision)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                            """, (now, client_details.node_id, position.latitude_i, position.longitude_i, position.altitude, position.precision_bits))
+                            INSERT INTO position_metrics (time, node_id, latitude, longitude, altitude, precision, packet_id)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            """, (now, client_details.node_id, position.latitude_i, position.longitude_i, position.altitude, position.precision_bits, packet_id))
                 conn.commit()
 
             self.db_handler.execute_db_operation(db_operation)
