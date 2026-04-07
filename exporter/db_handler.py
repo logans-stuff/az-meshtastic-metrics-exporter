@@ -232,8 +232,8 @@ class DBHandler:
 
     def update_traceroute_hops(self, packet_id: int, source_id: str,
                                reporting_gateway: Optional[str] = None,
-                               route_towards: list = None, snr_towards: list = None,
-                               route_back: list = None, snr_back: list = None):
+                               route_towards: Optional[list] = None, snr_towards: Optional[list] = None,
+                               route_back: Optional[list] = None, snr_back: Optional[list] = None):
         """Update mesh_packet_metrics with traceroute RouteDiscovery hop data"""
         with self.db_pool.connection() as conn:
             with conn.cursor() as cur:
@@ -257,7 +257,7 @@ class DBHandler:
                     WHERE packet_id = %s AND source_id = %s
                       AND portnum = 'TRACEROUTE_APP'
                 """
-                
+
                 params = [
                     route_towards or None,
                     snr_towards or None,
