@@ -142,12 +142,17 @@ class MessageProcessor:
                 enum_val = descriptor.enum_type.values_by_number.get(transport_val)
                 transport_name = enum_val.name if enum_val else str(transport_val)
 
+        request_id = getattr(mesh_packet.decoded, 'request_id', 0) or None
+        reply_id = getattr(mesh_packet.decoded, 'reply_id', 0) or None
+
         # Store mesh packet metrics in TimescaleDB
         self.db_handler.store_mesh_packet_metrics(
             source_client_details.node_id,
             destination_client_details.node_id,
             {
                 'portnum': self.get_port_name_from_portnum(port_num),
+                'request_id': request_id,
+                'reply_id': reply_id,
                 'packet_id': mesh_packet.id,
                 'channel': mesh_packet.channel,
                 'rx_time': mesh_packet.rx_time,
