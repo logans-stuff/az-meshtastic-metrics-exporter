@@ -270,6 +270,8 @@ CREATE TABLE mesh_packet_metrics
     transport_mechanism  VARCHAR,
     pki_encrypted        BOOLEAN,
     reporting_gateway    VARCHAR DEFAULT NULL,
+    request_id           BIGINT,
+    reply_id             BIGINT,
     -- Traceroute RouteDiscovery fields (populated for TRACEROUTE_APP packets)
     route_towards        BIGINT[],   -- intermediate hop node IDs towards destination
     snr_towards          FLOAT[],    -- SNR at each hop towards destination
