@@ -272,6 +272,7 @@ CREATE TABLE mesh_packet_metrics
     reporting_gateway    VARCHAR DEFAULT NULL,
     request_id           BIGINT,
     reply_id             BIGINT,
+    ok_to_mqtt           BOOLEAN,
     -- Traceroute RouteDiscovery fields (populated for TRACEROUTE_APP packets)
     route_towards        BIGINT[],   -- intermediate hop node IDs towards destination
     snr_towards          FLOAT[],    -- SNR at each hop towards destination

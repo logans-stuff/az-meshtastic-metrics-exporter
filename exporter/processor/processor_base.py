@@ -144,6 +144,10 @@ class MessageProcessor:
 
         request_id = getattr(mesh_packet.decoded, 'request_id', 0) or None
         reply_id = getattr(mesh_packet.decoded, 'reply_id', 0) or None
+        
+        ok_to_mqtt = None
+        if hasattr(mesh_packet.decoded, 'HasField') and mesh_packet.decoded.HasField('bitfield'):
+            ok_to_mqtt = bool(mesh_packet.decoded.bitfield & 1)
 
         # Store mesh packet metrics in TimescaleDB
         self.db_handler.store_mesh_packet_metrics(
@@ -153,6 +157,7 @@ class MessageProcessor:
                 'portnum': self.get_port_name_from_portnum(port_num),
                 'request_id': request_id,
                 'reply_id': reply_id,
+                'ok_to_mqtt': ok_to_mqtt,
                 'packet_id': mesh_packet.id,
                 'channel': mesh_packet.channel,
                 'rx_time': mesh_packet.rx_time,
