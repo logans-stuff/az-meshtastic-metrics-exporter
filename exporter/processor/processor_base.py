@@ -144,10 +144,18 @@ class MessageProcessor:
 
         request_id = getattr(mesh_packet.decoded, 'request_id', 0) or None
         reply_id = getattr(mesh_packet.decoded, 'reply_id', 0) or None
-        
+
+        # ok_to_mqtt lives in Data.bitfield (bit 0). bitfield is an `optional`
+        # proto3 field, so HasField lets us distinguish "unset" (older firmware
+        # / missing field) from "explicitly false", and we store NULL in that
+        # case. Older meshtastic protobuf builds without the field raise
+        # ValueError from HasField; fall back to NULL there too.
         ok_to_mqtt = None
-        if hasattr(mesh_packet.decoded, 'HasField') and mesh_packet.decoded.HasField('bitfield'):
-            ok_to_mqtt = bool(mesh_packet.decoded.bitfield & 1)
+        try:
+            if mesh_packet.decoded.HasField('bitfield'):
+                ok_to_mqtt = bool(mesh_packet.decoded.bitfield & 1)
+        except ValueError:
+            pass
 
         # Store mesh packet metrics in TimescaleDB
         self.db_handler.store_mesh_packet_metrics(
