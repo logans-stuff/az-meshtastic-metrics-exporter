@@ -46,11 +46,18 @@ The system uses PostgreSQL with TimescaleDB extension:
 4. **power_metrics** - Multi-channel voltage/current measurements
 5. **pax_counter_metrics** - WiFi and BLE device counts
 6. **mesh_packet_metrics** - Packet routing and network statistics
+7. **position_metrics** - Historical GPS coordinates for recent location analysis
 
 All hypertables have:
-- Automatic 30-day retention policies
+- Automatic retention policies
 - Indexes optimized for time-series queries
 - Continuous aggregation support
+
+Default retention is 3 months for non-location hypertables and 30 days for
+`position_metrics`. The shorter location window is intentional:
+`node_details` stores the latest coordinate for dashboard maps, so run the
+location pruning script below if you also want stale latest-location fields
+cleared.
 
 ### Grafana Dashboards
 
@@ -166,15 +173,35 @@ If you only need to apply the schema update manually, run:
 
 ```bash
 docker exec -i <timescaledb_container> psql -U postgres -d meshtastic \
-  -f /dev/stdin < docker/timescaledb/005_neighbor_info_history.sql
+  -f /dev/stdin < docker/timescaledb/008_retention_and_location_privacy.sql
 ```
 
 To verify:
 
 ```bash
-docker exec -it <timescaledb_container> psql -U postgres -d meshtastic -c "\d+ node_neighbors"
-docker exec -it <timescaledb_container> psql -U postgres -d meshtastic -c "SELECT * FROM node_neighbors_latest LIMIT 5"
+docker exec -it <timescaledb_container> psql -U postgres -d meshtastic \
+  -c "SELECT hypertable_name, config FROM timescaledb_information.jobs WHERE proc_name = 'policy_retention' ORDER BY hypertable_name"
 ```
+
+### Location privacy pruning
+
+TimescaleDB retention automatically removes old `position_metrics` chunks, but
+the latest location stored in `node_details` lingers so dashboard maps still
+have something to render. To clear location data older than 30 days, run:
+
+```bash
+python scripts/prune_location_data.py --dry-run
+python scripts/prune_location_data.py
+```
+
+The script uses `node_details.location_updated_at` (added in migration 008) to
+decide which cached locations are stale, so apply the migration first. Rows
+that predate the migration without a backfilled timestamp are left alone by
+default; pass `--force-legacy` to clear them too.
+
+Install the project requirements first if `psycopg` is not available. For
+host-based runs, set `PG_HOST`, `PG_PORT`, `PG_DB`, `PG_USER`, and
+`PG_PASSWORD` as needed. To keep a different window, pass `--retention-days 90`.
 
 ## Contributing
 

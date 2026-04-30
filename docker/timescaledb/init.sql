@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS node_details
     latitude       INT,
     altitude       INT,
     precision      INT,
+    location_updated_at TIMESTAMP,
     -- SQL Data
     created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -460,13 +461,15 @@ CREATE TRIGGER trigger_pax_counter_metrics_insert
     FOR EACH ROW
 EXECUTE FUNCTION update_node_configurations();
 
--- Set up retention policies (default: 30 days)
-SELECT add_retention_policy('device_metrics', INTERVAL '30 days');
-SELECT add_retention_policy('environment_metrics', INTERVAL '30 days');
-SELECT add_retention_policy('air_quality_metrics', INTERVAL '30 days');
-SELECT add_retention_policy('power_metrics', INTERVAL '30 days');
-SELECT add_retention_policy('pax_counter_metrics', INTERVAL '30 days');
-SELECT add_retention_policy('mesh_packet_metrics', INTERVAL '30 days');
+-- Set up retention policies.
+-- General telemetry and packet metadata are kept for 3 months. Location history
+-- is intentionally shorter-lived for privacy.
+SELECT add_retention_policy('device_metrics', INTERVAL '3 months');
+SELECT add_retention_policy('environment_metrics', INTERVAL '3 months');
+SELECT add_retention_policy('air_quality_metrics', INTERVAL '3 months');
+SELECT add_retention_policy('power_metrics', INTERVAL '3 months');
+SELECT add_retention_policy('pax_counter_metrics', INTERVAL '3 months');
+SELECT add_retention_policy('mesh_packet_metrics', INTERVAL '3 months');
 SELECT add_retention_policy('position_metrics', INTERVAL '30 days');
 
 -- Create views for easier querying

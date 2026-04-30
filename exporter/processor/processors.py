@@ -121,14 +121,15 @@ class PositionAppProcessor(Processor):
                 now = datetime.now()
                 cur.execute("""
                             UPDATE node_details
-                            SET latitude   = %s,
-                                longitude  = %s,
-                                altitude   = %s,
-                                precision  = %s,
-                                updated_at = %s
+                            SET latitude            = %s,
+                                longitude           = %s,
+                                altitude            = %s,
+                                precision           = %s,
+                                updated_at          = %s,
+                                location_updated_at = %s
                             WHERE node_id = %s
                             """, (position.latitude_i, position.longitude_i, position.altitude, position.precision_bits,
-                                  now.isoformat(), client_details.node_id))
+                                  now.isoformat(), now.isoformat(), client_details.node_id))
                 cur.execute("""
                             INSERT INTO position_metrics (time, node_id, latitude, longitude, altitude, precision, packet_id, rx_time, message_timestamp)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)

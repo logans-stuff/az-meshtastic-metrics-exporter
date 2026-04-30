@@ -24,5 +24,5 @@ SELECT create_hypertable('position_metrics', 'time');
 -- Apply indexing for optimal dashboard loads
 CREATE INDEX idx_position_metrics_node_id ON position_metrics (node_id, time DESC);
 
--- Apply standard 30-day retention policies using timescale plugin
+-- Apply shorter location retention for privacy.
 SELECT add_retention_policy('position_metrics', INTERVAL '30 days');
