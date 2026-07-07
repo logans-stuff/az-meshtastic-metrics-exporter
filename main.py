@@ -75,7 +75,9 @@ def handle_message(client, userdata, message):
             except ValueError:
                 pass
 
-        observation_id = f"{packet.id}_{reporting_gateway_id}"
+        relay_node = getattr(packet, 'relay_node', None)
+        rx_snr = getattr(packet, 'rx_snr', None)
+        observation_id = f"{packet.id}_{reporting_gateway_id}_{relay_node}_{rx_snr}"
 
         with connection_pool.connection() as conn:
             with conn.cursor() as cur:
