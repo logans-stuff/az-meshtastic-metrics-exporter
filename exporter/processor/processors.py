@@ -78,7 +78,17 @@ class TextMessageAppProcessor(Processor):
     def process(self, payload: bytes, client_details: ClientDetails, **kwargs):
         logger.debug("Received TEXT_MESSAGE_APP packet")
         decoded_message = payload.decode('utf-8')
-        pass
+        
+        mesh_packet = kwargs.get('mesh_packet')
+        if mesh_packet:
+            to_node_id = str(getattr(mesh_packet, 'to', '4294967295'))
+            metrics = {
+                'text_payload': decoded_message,
+                'channel': getattr(mesh_packet, 'channel', 0),
+                'packet_id': getattr(mesh_packet, 'id', None),
+                'rx_time': getattr(mesh_packet, 'rx_time', None),
+            }
+            self.db_handler.store_text_message(client_details.node_id, to_node_id, metrics)
 
 
 @ProcessorRegistry.register_processor(PortNum.REMOTE_HARDWARE_APP)
@@ -238,7 +248,17 @@ class TextMessageCompressedAppProcessor(Processor):
     def process(self, payload: bytes, client_details: ClientDetails, **kwargs):
         logger.debug("Received TEXT_MESSAGE_COMPRESSED_APP packet")
         decompressed_payload = unishox2.decompress(payload, len(payload))
-        pass
+        
+        mesh_packet = kwargs.get('mesh_packet')
+        if mesh_packet:
+            to_node_id = str(getattr(mesh_packet, 'to', '4294967295'))
+            metrics = {
+                'text_payload': decompressed_payload,
+                'channel': getattr(mesh_packet, 'channel', 0),
+                'packet_id': getattr(mesh_packet, 'id', None),
+                'rx_time': getattr(mesh_packet, 'rx_time', None),
+            }
+            self.db_handler.store_text_message(client_details.node_id, to_node_id, metrics)
 
 
 @ProcessorRegistry.register_processor(PortNum.WAYPOINT_APP)

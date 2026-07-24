@@ -117,7 +117,7 @@ MQTT_SERVER_KEY=1PG7OiApB1nwvP+rz05pAQ==
 
 # Message types to filter (comma-separated)
 # Full list: https://buf.build/meshtastic/protobufs/docs/main:meshtastic#meshtastic.PortNum
-EXPORTER_MESSAGE_TYPES_TO_FILTER=TEXT_MESSAGE_APP
+EXPORTER_MESSAGE_TYPES_TO_FILTER=
 
 # Enable node configurations report
 REPORT_NODE_CONFIGURATIONS=true
