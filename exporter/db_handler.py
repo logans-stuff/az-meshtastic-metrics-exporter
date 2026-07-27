@@ -292,3 +292,62 @@ class DBHandler:
                 if result:
                     return dict(zip(columns, result))
                 return {}
+
+    def store_text_message(self, source_id: str, destination_id: str, metrics: Dict[str, Any]):
+        """Store text message metrics in TimescaleDB"""
+        if not metrics or not metrics.get('text_payload'):
+            return
+
+        columns = ["time", "node_id", "to_node_id"]
+        values = [datetime.now(), source_id, destination_id]
+
+        for key, value in metrics.items():
+            columns.append(key)
+            values.append(value)
+
+        columns_str = ", ".join(columns)
+        placeholders = ", ".join(["%s"] * len(values))
+
+        with self.db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                # Ensure source_id exists in node_details
+                cur.execute("SELECT 1 FROM node_details WHERE node_id = %s", (source_id,))
+                if not cur.fetchone():
+                    if source_id == "4294967295" or source_id == "1":
+                        cur.execute("""
+                                    INSERT INTO node_details (node_id, short_name, long_name, hardware_model, role)
+                                    VALUES (%s, %s, %s, %s, %s)
+                                    ON CONFLICT (node_id) DO NOTHING
+                                    """, (source_id, 'Broadcast', 'Broadcast', 'BROADCAST', 'BROADCAST'))
+                    else:
+                        cur.execute("""
+                                    INSERT INTO node_details (node_id, short_name, long_name)
+                                    VALUES (%s, %s, %s)
+                                    ON CONFLICT (node_id) DO NOTHING
+                                    """, (source_id, 'Unknown', 'Unknown'))
+
+                # Ensure destination_id exists in node_details
+                cur.execute("SELECT 1 FROM node_details WHERE node_id = %s", (destination_id,))
+                if not cur.fetchone():
+                    if destination_id == "4294967295" or destination_id == "1":
+                        cur.execute("""
+                                    INSERT INTO node_details (node_id, short_name, long_name, hardware_model, role)
+                                    VALUES (%s, %s, %s, %s, %s)
+                                    ON CONFLICT (node_id) DO NOTHING
+                                    """, (destination_id, 'Broadcast', 'Broadcast', 'BROADCAST', 'BROADCAST'))
+                    else:
+                        cur.execute("""
+                                    INSERT INTO node_details (node_id, short_name, long_name)
+                                    VALUES (%s, %s, %s)
+                                    ON CONFLICT (node_id) DO NOTHING
+                                    """, (destination_id, 'Unknown', 'Unknown'))
+
+                cur.execute(f"""
+                    INSERT INTO text_message_metrics (
+                        {columns_str}
+                    ) VALUES (
+                        {placeholders}
+                    )
+                """, values)
+                conn.commit()
+
