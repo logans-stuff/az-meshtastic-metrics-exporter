@@ -22,12 +22,60 @@ from exporter.client_details import ClientDetails
 from exporter.db_handler import DBHandler
 from exporter.processor.processors import ProcessorRegistry
 
+DEFAULT_SERVER_KEY = '1PG7OiApB1nwvP+rz05pAQ=='
+# Meshtastic channels are AES128 or AES256; there is no 192 bit variant.
+AES_KEY_SIZES = (16, 32)
+# UNKNOWN_APP is 0, which is also what protobuf yields for an absent field, so it
+# cannot distinguish a real packet from garbage produced by the wrong key.
+VALID_PORT_NUMS = frozenset(PortNum.DESCRIPTOR.values_by_number.keys()) - {PortNum.UNKNOWN_APP}
+
+
+def load_channel_keys() -> list:
+    """Parse MQTT_SERVER_KEY, which may hold several comma separated keys.
+
+    Keys are used exactly as given. Single-byte shorthand PSKs are not expanded,
+    because a key of an unexpected length is more likely to be a custom key than
+    something this should reinterpret. Paste the full key instead.
+    """
+    raw = os.getenv('MQTT_SERVER_KEY', DEFAULT_SERVER_KEY)
+
+    keys = []
+    for entry in raw.split(','):
+        entry = entry.strip()
+        if not entry:
+            continue
+
+        try:
+            key = base64.b64decode(entry.encode('ascii'), validate=True)
+        except Exception as e:
+            logging.warning(f"Ignoring channel key '{entry}': not valid base64 ({e})")
+            continue
+
+        if len(key) not in AES_KEY_SIZES:
+            logging.warning(
+                f"Ignoring channel key '{entry}': decodes to {len(key)} bytes, "
+                f"expected one of {AES_KEY_SIZES}. Single-byte shorthand keys such as "
+                f"'AQ==' must be given in full.")
+            continue
+
+        if key not in keys:
+            keys.append(key)
+
+    if not keys:
+        logging.warning("No usable channel keys configured; falling back to the default key")
+        keys.append(base64.b64decode(DEFAULT_SERVER_KEY.encode('ascii')))
+
+    logging.info(f"Loaded {len(keys)} channel key(s) for decryption")
+    return keys
+
 
 class MessageProcessor:
     def __init__(self, db_pool: ConnectionPool):
         self.db_pool = db_pool
         self.db_handler = DBHandler(db_pool)
         self.processor_registry = ProcessorRegistry()
+        # Parsed once here rather than per packet, unlike the previous single-key lookup.
+        self.channel_keys = load_channel_keys()
 
 
     @staticmethod
@@ -78,23 +126,41 @@ class MessageProcessor:
     def process(self, mesh_packet: MeshPacket, reporting_gateway: str = None, topic: str = None):
         try:
             if getattr(mesh_packet, 'encrypted'):
-                key_bytes = base64.b64decode(os.getenv('MQTT_SERVER_KEY', '1PG7OiApB1nwvP+rz05pAQ==').encode('ascii'))
                 nonce_packet_id = getattr(mesh_packet, "id").to_bytes(8, "little")
                 nonce_from_node = getattr(mesh_packet, "from").to_bytes(8, "little")
 
                 # Put both parts into a single byte array.
                 nonce = nonce_packet_id + nonce_from_node
 
-                cipher = Cipher(algorithms.AES(key_bytes), modes.CTR(nonce), backend=default_backend())
-                decryptor = cipher.decryptor()
-                decrypted_bytes = decryptor.update(getattr(mesh_packet, "encrypted")) + decryptor.finalize()
+                # A packet only carries a channel hash, not which key encrypted it, so try
+                # each configured key and keep the first that yields a sane Data message.
+                data = None
+                last_error = None
+                for key_bytes in self.channel_keys:
+                    cipher = Cipher(algorithms.AES(key_bytes), modes.CTR(nonce), backend=default_backend())
+                    decryptor = cipher.decryptor()
+                    decrypted_bytes = decryptor.update(getattr(mesh_packet, "encrypted")) + decryptor.finalize()
 
-                data = Data()
-                try:
-                    data.ParseFromString(decrypted_bytes)
-                except Exception as e:
+                    candidate = Data()
+                    try:
+                        candidate.ParseFromString(decrypted_bytes)
+                    except Exception as e:
+                        last_error = e
+                        continue
+
+                    # Garbage from the wrong key parses as valid protobuf surprisingly
+                    # often, almost always leaving portnum at its zero default, so require
+                    # a real portnum before accepting the result.
+                    if candidate.portnum not in VALID_PORT_NUMS:
+                        last_error = f"implausible portnum {candidate.portnum}"
+                        continue
+
+                    data = candidate
+                    break
+
+                if data is None:
                     logging.warning(
-                        f"Failed to decrypt message from node {getattr(mesh_packet, 'from', 'unknown')} (hex: {getattr(mesh_packet, 'from', 'unknown'):x}) with packet ID {getattr(mesh_packet, 'id', 'unknown')}: {e}")
+                        f"Failed to decrypt message from node {getattr(mesh_packet, 'from', 'unknown')} (hex: {getattr(mesh_packet, 'from', 'unknown'):x}) with packet ID {getattr(mesh_packet, 'id', 'unknown')}: {last_error}")
                     return
                 mesh_packet.decoded.CopyFrom(data)
             port_num = int(mesh_packet.decoded.portnum)
