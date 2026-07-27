@@ -113,6 +113,10 @@ MQTT_CALLBACK_API_VERSION=VERSION2
 # Exporter configuration
 MESH_HIDE_SOURCE_DATA=false
 MESH_HIDE_DESTINATION_DATA=false
+
+# Channel key(s) for decoding, comma-separated. Each is tried until one works.
+# Keys are used as given and must decode to 16 or 32 bytes (AES128 or AES256).
+# Single-byte shorthand keys shown in the app must be written out in full.
 MQTT_SERVER_KEY=1PG7OiApB1nwvP+rz05pAQ==
 
 # Message types to filter (comma-separated)
@@ -197,6 +201,30 @@ docker exec -i <timescaledb_container> psql -U postgres -d meshtastic \
 Capture follows `EXPORTER_MESSAGE_TYPES_TO_FILTER`. Add `TEXT_MESSAGE_APP` to
 that list to stop recording message bodies. Retention is 30 days, matching
 `position_metrics` rather than the 3 months used for general telemetry.
+
+### Decrypting additional channels
+
+`MQTT_SERVER_KEY` accepts a comma-separated list. Each key is tried in order
+until one produces a valid packet, so a single exporter can follow several
+channels at once.
+
+Keys are used exactly as written and must decode to 16 or 32 bytes (AES128 or AES256). The
+Meshtastic app shows well-known channels using a single-byte shorthand (`AQ==`,
+`Ww==`, ...), which this does not expand — write the key out in full. A
+shorthand of `N` means the default key with its last byte replaced by `N`, and
+because the first 15 bytes are unchanged that is just the shorthand appended to
+`1PG7OiApB1nwvP+rz05p`:
+
+| Shorthand | Full key |
+| --- | --- |
+| `AQ==` | `1PG7OiApB1nwvP+rz05pAQ==` |
+| `Ww==` | `1PG7OiApB1nwvP+rz05pWw==` |
+| `TQ==` | `1PG7OiApB1nwvP+rz05pTQ==` |
+| `MQ==` | `1PG7OiApB1nwvP+rz05pMQ==` |
+
+A key that is unusable is logged and skipped at startup rather than failing the
+process, and the count actually loaded is logged as
+`Loaded N channel key(s) for decryption`.
 
 ### Location privacy pruning
 
