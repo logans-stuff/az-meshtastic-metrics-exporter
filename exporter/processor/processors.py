@@ -31,6 +31,11 @@ from psycopg_pool import ConnectionPool
 from exporter.client_details import ClientDetails
 from exporter.db_handler import DBHandler
 
+# Upper bound on how far unishox2 can expand a compressed payload. Measured worst case is
+# around 11x for inputs the size of a Meshtastic text message, dropping to ~2x for longer
+# runs, so 16x plus a fixed margin leaves ample headroom.
+UNISHOX2_MAX_EXPANSION = 16
+
 
 class Processor(ABC):
     def __init__(self, db_pool: ConnectionPool):
@@ -78,7 +83,7 @@ class TextMessageAppProcessor(Processor):
     def process(self, payload: bytes, client_details: ClientDetails, **kwargs):
         logger.debug("Received TEXT_MESSAGE_APP packet")
         decoded_message = payload.decode('utf-8')
-        
+
         mesh_packet = kwargs.get('mesh_packet')
         if mesh_packet:
             to_node_id = str(getattr(mesh_packet, 'to', '4294967295'))
@@ -87,6 +92,7 @@ class TextMessageAppProcessor(Processor):
                 'channel': getattr(mesh_packet, 'channel', 0),
                 'packet_id': getattr(mesh_packet, 'id', None),
                 'rx_time': getattr(mesh_packet, 'rx_time', None),
+                'reporting_gateway': kwargs.get('reporting_gateway'),
             }
             self.db_handler.store_text_message(client_details.node_id, to_node_id, metrics)
 
@@ -247,8 +253,12 @@ class AdminAppProcessor(Processor):
 class TextMessageCompressedAppProcessor(Processor):
     def process(self, payload: bytes, client_details: ClientDetails, **kwargs):
         logger.debug("Received TEXT_MESSAGE_COMPRESSED_APP packet")
-        decompressed_payload = unishox2.decompress(payload, len(payload))
-        
+        # The second argument is the size of the output buffer unishox2 allocates, not the
+        # size of the compressed input. Passing a value smaller than the decompressed string
+        # overruns that buffer and aborts the interpreter, which no `except` can catch, so
+        # size it well above anything a Meshtastic payload can expand to.
+        decompressed_payload = unishox2.decompress(payload, len(payload) * UNISHOX2_MAX_EXPANSION + 256)
+
         mesh_packet = kwargs.get('mesh_packet')
         if mesh_packet:
             to_node_id = str(getattr(mesh_packet, 'to', '4294967295'))
@@ -257,6 +267,7 @@ class TextMessageCompressedAppProcessor(Processor):
                 'channel': getattr(mesh_packet, 'channel', 0),
                 'packet_id': getattr(mesh_packet, 'id', None),
                 'rx_time': getattr(mesh_packet, 'rx_time', None),
+                'reporting_gateway': kwargs.get('reporting_gateway'),
             }
             self.db_handler.store_text_message(client_details.node_id, to_node_id, metrics)
 

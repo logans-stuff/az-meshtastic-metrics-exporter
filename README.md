@@ -183,6 +183,21 @@ docker exec -it <timescaledb_container> psql -U postgres -d meshtastic \
   -c "SELECT hypertable_name, config FROM timescaledb_information.jobs WHERE proc_name = 'policy_retention' ORDER BY hypertable_name"
 ```
 
+### Text message capture
+
+Migration 009 adds the `text_message_metrics` hypertable, which stores the
+plaintext body of every `TEXT_MESSAGE_APP` and `TEXT_MESSAGE_COMPRESSED_APP`
+packet the exporter can decrypt:
+
+```bash
+docker exec -i <timescaledb_container> psql -U postgres -d meshtastic \
+  -f /dev/stdin < docker/timescaledb/009_add_text_messages.sql
+```
+
+Capture follows `EXPORTER_MESSAGE_TYPES_TO_FILTER`. Add `TEXT_MESSAGE_APP` to
+that list to stop recording message bodies. Retention is 30 days, matching
+`position_metrics` rather than the 3 months used for general telemetry.
+
 ### Location privacy pruning
 
 TimescaleDB retention automatically removes old `position_metrics` chunks, but

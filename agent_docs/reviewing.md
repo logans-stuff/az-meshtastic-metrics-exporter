@@ -15,9 +15,7 @@ A full review in this repository includes all of the following:
    - `exporter/processor/processors.py`
 2. Database schema and migrations
    - `docker/timescaledb/init.sql`
-   - `docker/timescaledb/001_traceroute_and_positions_migration.sql`
-   - `docker/timescaledb/002_reporting_gateway_migration.sql`
-   - `docker/timescaledb/003_node_topic_channel_tracking.sql`
+   - the numbered migration files in `docker/timescaledb/`, currently `001` through `009`
 3. Deployment and operations
    - `docker-compose.yml`
    - `docker/exporter/Dockerfile.exporter`

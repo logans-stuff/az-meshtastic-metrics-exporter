@@ -550,21 +550,27 @@ FROM node_details d
     ) pm ON true;
 
 -- Text message metrics
+-- Message bodies are more sensitive than telemetry, so they follow the 30 day
+-- position_metrics retention rather than the 3 months used elsewhere. No unique
+-- constraint: the same message uplinked by several gateways is stored once per
+-- uplink, matching how mesh_packet_metrics counts observations.
 CREATE TABLE IF NOT EXISTS text_message_metrics
 (
-    time          TIMESTAMPTZ NOT NULL,
-    node_id       VARCHAR     NOT NULL,
-    to_node_id    VARCHAR     NOT NULL,
-    channel       INT,
-    packet_id     BIGINT,
-    text_payload  TEXT,
-    rx_time       BIGINT,
+    time              TIMESTAMPTZ NOT NULL,
+    node_id           VARCHAR     NOT NULL,
+    to_node_id        VARCHAR     NOT NULL,
+    channel           INT,
+    packet_id         BIGINT,
+    text_payload      TEXT,
+    rx_time           BIGINT,
+    reporting_gateway VARCHAR DEFAULT NULL,
     FOREIGN KEY (node_id) REFERENCES node_details (node_id)
 );
 
 SELECT create_hypertable('text_message_metrics', 'time', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_text_message_metrics_node_id ON text_message_metrics (node_id, time DESC);
 CREATE INDEX IF NOT EXISTS idx_text_message_metrics_to_node ON text_message_metrics (to_node_id, time DESC);
+CREATE INDEX IF NOT EXISTS idx_text_message_metrics_gateway ON text_message_metrics (reporting_gateway, time DESC);
 
 SELECT add_retention_policy('text_message_metrics', INTERVAL '30 days', if_not_exists => TRUE);
 
