@@ -164,6 +164,26 @@ class DBHandler:
                 """, values)
                 conn.commit()
 
+    @staticmethod
+    def _ensure_node_exists(cur, node_id: str):
+        """Insert a placeholder node_details row so foreign keys and joins resolve"""
+        cur.execute("SELECT 1 FROM node_details WHERE node_id = %s", (node_id,))
+        if cur.fetchone():
+            return
+
+        if node_id == "4294967295" or node_id == "1":  # Broadcast addresses
+            cur.execute("""
+                        INSERT INTO node_details (node_id, short_name, long_name, hardware_model, role)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (node_id) DO NOTHING
+                        """, (node_id, 'Broadcast', 'Broadcast', 'BROADCAST', 'BROADCAST'))
+        else:
+            cur.execute("""
+                        INSERT INTO node_details (node_id, short_name, long_name)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (node_id) DO NOTHING
+                        """, (node_id, 'Unknown', 'Unknown'))
+
     def store_mesh_packet_metrics(self, source_id: str, destination_id: str, metrics: Dict[str, Any]):
         """Store mesh packet metrics in TimescaleDB"""
         if not metrics:
@@ -184,41 +204,8 @@ class DBHandler:
 
         with self.db_pool.connection() as conn:
             with conn.cursor() as cur:
-                # Check if source_id exists in node_details, if not insert it
-                cur.execute("SELECT 1 FROM node_details WHERE node_id = %s", (source_id,))
-                if not cur.fetchone():
-                    # Insert broadcast node for source_id
-                    if source_id == "4294967295" or source_id == "1":  # Broadcast addresses
-                        cur.execute("""
-                                    INSERT INTO node_details (node_id, short_name, long_name, hardware_model, role)
-                                    VALUES (%s, %s, %s, %s, %s)
-                                    ON CONFLICT (node_id) DO NOTHING
-                                    """, (source_id, 'Broadcast', 'Broadcast', 'BROADCAST', 'BROADCAST'))
-                    else:
-                        # Insert unknown node for source_id
-                        cur.execute("""
-                                    INSERT INTO node_details (node_id, short_name, long_name)
-                                    VALUES (%s, %s, %s)
-                                    ON CONFLICT (node_id) DO NOTHING
-                                    """, (source_id, 'Unknown', 'Unknown'))
-
-                # Check if destination_id exists in node_details, if not insert it
-                cur.execute("SELECT 1 FROM node_details WHERE node_id = %s", (destination_id,))
-                if not cur.fetchone():
-                    # Insert broadcast node for destination_id
-                    if destination_id == "4294967295" or destination_id == "1":  # Broadcast addresses
-                        cur.execute("""
-                                    INSERT INTO node_details (node_id, short_name, long_name, hardware_model, role)
-                                    VALUES (%s, %s, %s, %s, %s)
-                                    ON CONFLICT (node_id) DO NOTHING
-                                    """, (destination_id, 'Broadcast', 'Broadcast', 'BROADCAST', 'BROADCAST'))
-                    else:
-                        # Insert unknown node for destination_id
-                        cur.execute("""
-                                    INSERT INTO node_details (node_id, short_name, long_name)
-                                    VALUES (%s, %s, %s)
-                                    ON CONFLICT (node_id) DO NOTHING
-                                    """, (destination_id, 'Unknown', 'Unknown'))
+                self._ensure_node_exists(cur, source_id)
+                self._ensure_node_exists(cur, destination_id)
 
                 # Now insert into mesh_packet_metrics
                 cur.execute(f"""
@@ -310,37 +297,8 @@ class DBHandler:
 
         with self.db_pool.connection() as conn:
             with conn.cursor() as cur:
-                # Ensure source_id exists in node_details
-                cur.execute("SELECT 1 FROM node_details WHERE node_id = %s", (source_id,))
-                if not cur.fetchone():
-                    if source_id == "4294967295" or source_id == "1":
-                        cur.execute("""
-                                    INSERT INTO node_details (node_id, short_name, long_name, hardware_model, role)
-                                    VALUES (%s, %s, %s, %s, %s)
-                                    ON CONFLICT (node_id) DO NOTHING
-                                    """, (source_id, 'Broadcast', 'Broadcast', 'BROADCAST', 'BROADCAST'))
-                    else:
-                        cur.execute("""
-                                    INSERT INTO node_details (node_id, short_name, long_name)
-                                    VALUES (%s, %s, %s)
-                                    ON CONFLICT (node_id) DO NOTHING
-                                    """, (source_id, 'Unknown', 'Unknown'))
-
-                # Ensure destination_id exists in node_details
-                cur.execute("SELECT 1 FROM node_details WHERE node_id = %s", (destination_id,))
-                if not cur.fetchone():
-                    if destination_id == "4294967295" or destination_id == "1":
-                        cur.execute("""
-                                    INSERT INTO node_details (node_id, short_name, long_name, hardware_model, role)
-                                    VALUES (%s, %s, %s, %s, %s)
-                                    ON CONFLICT (node_id) DO NOTHING
-                                    """, (destination_id, 'Broadcast', 'Broadcast', 'BROADCAST', 'BROADCAST'))
-                    else:
-                        cur.execute("""
-                                    INSERT INTO node_details (node_id, short_name, long_name)
-                                    VALUES (%s, %s, %s)
-                                    ON CONFLICT (node_id) DO NOTHING
-                                    """, (destination_id, 'Unknown', 'Unknown'))
+                self._ensure_node_exists(cur, source_id)
+                self._ensure_node_exists(cur, destination_id)
 
                 cur.execute(f"""
                     INSERT INTO text_message_metrics (
@@ -350,4 +308,3 @@ class DBHandler:
                     )
                 """, values)
                 conn.commit()
-
