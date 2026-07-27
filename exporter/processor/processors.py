@@ -92,6 +92,7 @@ class TextMessageAppProcessor(Processor):
                 'channel': getattr(mesh_packet, 'channel', 0),
                 'packet_id': getattr(mesh_packet, 'id', None),
                 'rx_time': getattr(mesh_packet, 'rx_time', None),
+                'reporting_gateway': kwargs.get('reporting_gateway'),
             }
             self.db_handler.store_text_message(client_details.node_id, to_node_id, metrics)
 
@@ -266,6 +267,7 @@ class TextMessageCompressedAppProcessor(Processor):
                 'channel': getattr(mesh_packet, 'channel', 0),
                 'packet_id': getattr(mesh_packet, 'id', None),
                 'rx_time': getattr(mesh_packet, 'rx_time', None),
+                'reporting_gateway': kwargs.get('reporting_gateway'),
             }
             self.db_handler.store_text_message(client_details.node_id, to_node_id, metrics)
 
