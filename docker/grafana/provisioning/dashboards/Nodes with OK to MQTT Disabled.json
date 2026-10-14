@@ -1,0 +1,77 @@
+{
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node Name"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "View in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields.node_id}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "node_id"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT REPLACE(n.node_id::text, '!', '') AS node_id, n.long_name AS \"Node Name\", SUM(CASE WHEN m.ok_to_mqtt = false THEN 1 ELSE 0 END) AS \"Disabled Messages\", SUM(CASE WHEN m.ok_to_mqtt = true THEN 1 ELSE 0 END) AS \"Enabled Messages\" FROM mesh_packet_metrics m JOIN node_details n ON REPLACE(m.source_id::text, '!', '') = REPLACE(n.node_id::text, '!', '') WHERE $__timeFilter(m.time) GROUP BY n.long_name, REPLACE(n.node_id::text, '!', '') HAVING SUM(CASE WHEN m.ok_to_mqtt = false THEN 1 ELSE 0 END) > 5 ORDER BY \"Disabled Messages\" DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Nodes with OK to MQTT Disabled",
+      "type": "table"
+    }
+  ],
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Nodes with OK to MQTT Disabled",
+  "uid": "ok_to_mqtt_disabled"
+}

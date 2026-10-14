@@ -1,0 +1,578 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 8,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
+      "interval": "15m",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH TimeSpine AS (\r\n  -- 1. Create the timeline, but SNAP it to the exact same boundaries as the data\r\n  SELECT DISTINCT $__timeGroup(series_time, '$__interval') AS time_bucket\r\n  FROM generate_series(\r\n    $__timeFrom()::timestamptz, \r\n    $__timeTo()::timestamptz, \r\n    '$__interval'::interval\r\n  ) AS series_time\r\n),\r\nTraffic AS (\r\n  -- 2. Grab your actual packet data, snapped to the same boundaries\r\n  SELECT\r\n    $__timeGroup(m.time, '$__interval') AS time_bucket,\r\n    m.portnum AS metric,\r\n    COUNT(DISTINCT m.packet_id) AS unique_messages\r\n  FROM mesh_packet_metrics m\r\n  LEFT JOIN node_details gn ON REPLACE(m.reporting_gateway::text, '!', '') = REPLACE(gn.node_id::text, '!', '')\r\n  WHERE $__timeFilter(m.time)\r\n    AND m.portnum IN (${message_type:singlequote})\r\n    AND TRIM(REPLACE(substring(gn.last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) IN (${mqtt_region:singlequote})\r\n    -- \ud83d\udccd Extracts the second-to-last segment (the channel name before the Node ID)\r\n    AND substring(gn.last_heard_topic from '/([^/]+)/[^/]+$') IN (${channel:singlequote})\r\n  GROUP BY 1, 2\r\n)\r\n\r\n-- 3. Staple them together!\r\nSELECT \r\n  ts.time_bucket AS \"time\",\r\n  COALESCE(t.metric, 'Network Quiet') AS metric,\r\n  COALESCE(t.unique_messages, 0) AS \"Unique Messages\"\r\nFROM TimeSpine ts\r\nLEFT JOIN Traffic t ON ts.time_bucket = t.time_bucket\r\nORDER BY ts.time_bucket ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Messages over window",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "red",
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "links": [
+            {
+              "title": "Filter Dashboard to ${__data.fields.[\"Transmitting Node\"]}",
+              "url": "/d/${__dashboard.uid}/${__dashboard.url}?var-node_id=${__data.fields[\"raw_node_id\"]}"
+            },
+            {
+              "targetBlank": true,
+              "title": "Open Node in Meshview",
+              "url": "https://view.azmsh.net/node/${__data.fields[\"raw_node_id\"]}"
+            }
+          ],
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 10
+              },
+              {
+                "color": "semi-dark-yellow",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Msgs Sent"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg Gateways Hit"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Best Reach"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Active Network Size"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Propagation Score"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "raw_node_id"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": true,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 17,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 1,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xField": "Transmitting Node",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH ActiveGateways AS (\r\n  -- 1. Calculate the Theoretical Max for the selected region(s)\r\n  SELECT COUNT(DISTINCT REPLACE(m.reporting_gateway::text, '!', '')) AS total_active_gws\r\n  FROM mesh_packet_metrics m\r\n  LEFT JOIN node_details gn ON REPLACE(m.reporting_gateway::text, '!', '') = REPLACE(gn.node_id::text, '!', '')\r\n  WHERE $__timeFilter(m.time)\r\n    AND TRIM(REPLACE(substring(gn.last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) IN (${mqtt_region:singlequote})\r\n),\r\nPacketScores AS (\r\n  -- 2. Grade Every Packet (Respecting the exact same region filter)\r\n  SELECT\r\n    REPLACE(m.source_id::text, '!', '') AS sender_id,\r\n    m.packet_id,\r\n    COUNT(DISTINCT REPLACE(m.reporting_gateway::text, '!', '')) AS gateways_hit\r\n  FROM mesh_packet_metrics m\r\n  LEFT JOIN node_details gn ON REPLACE(m.reporting_gateway::text, '!', '') = REPLACE(gn.node_id::text, '!', '')\r\n  WHERE $__timeFilter(m.time)\r\n    AND m.portnum IN (${message_type:singlequote})\r\n    AND TRIM(REPLACE(substring(gn.last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) IN (${mqtt_region:singlequote})\r\n    -- \ud83d\udccd Extracts the second-to-last segment (the channel name before the Node ID)\r\n    AND substring(gn.last_heard_topic from '/([^/]+)/[^/]+$') IN (${channel:singlequote})\r\n  GROUP BY 1, 2\r\n),\r\nNodeAggregates AS (\r\n  -- 3. Roll it up to the Node level\r\n  SELECT\r\n    sender_id,\r\n    COUNT(packet_id) AS total_messages_sent,\r\n    MAX(gateways_hit) AS best_packet_reach,\r\n    ROUND(AVG(gateways_hit)::numeric, 1) AS avg_gateways_hit\r\n  FROM PacketScores\r\n  GROUP BY 1\r\n)\r\n\r\n-- ... (ActiveGateways, PacketScores, NodeAggregates CTEs stay the same) ...\r\n\r\n-- 4. Final Output & Scoring\r\nSELECT\r\n  na.sender_id AS \"raw_node_id\", \r\n  COALESCE(n.long_name, na.sender_id) AS \"Transmitting Node\",\r\n  na.total_messages_sent AS \"Msgs Sent\",\r\n  na.avg_gateways_hit AS \"Avg Gateways Hit\",\r\n  na.best_packet_reach AS \"Best Reach\",\r\n  ag.total_active_gws AS \"Active Network Size\",\r\n  ROUND((na.avg_gateways_hit / ag.total_active_gws) * 100, 1) AS \"Propagation Score\"\r\n\r\nFROM NodeAggregates na\r\nCROSS JOIN ActiveGateways ag\r\nLEFT JOIN node_details n ON na.sender_id = REPLACE(n.node_id::text, '!', '')\r\nWHERE ag.total_active_gws > 0 \r\n  -- \ud83d\udccd REMOVED: AND na.total_messages_sent >= 3 \r\nORDER BY \"Propagation Score\" DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Mesh Propagation Score",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mesh Reach %"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "gauge",
+                  "valueDisplayMode": "hidden"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Packet ID"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/packet/${__data.fields[\"Packet ID\"]}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 17,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH ActiveGateways AS (\r\n  -- Calculate the Theoretical Max so we have a true 100% baseline\r\n  SELECT COUNT(DISTINCT REPLACE(m.reporting_gateway::text, '!', '')) AS total_active_gws\r\n  FROM mesh_packet_metrics m\r\n  LEFT JOIN node_details gn ON REPLACE(m.reporting_gateway::text, '!', '') = REPLACE(gn.node_id::text, '!', '')\r\n  WHERE $__timeFilter(m.time)\r\n    AND TRIM(REPLACE(substring(gn.last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) IN (${mqtt_region:singlequote})\r\n)\r\nSELECT\r\n  MIN(m.time) AS \"Time Sent\",\r\n  m.portnum AS \"App Type\",\r\n  m.packet_id::text AS \"Packet ID\",\r\n  \r\n  -- The Raw Count\r\n  COUNT(DISTINCT REPLACE(m.reporting_gateway::text, '!', '')) AS \"Gateways Hit\",\r\n  \r\n  -- \ud83d\udccd The new Percentage Column for your Bar Gauge\r\n  ROUND((COUNT(DISTINCT REPLACE(m.reporting_gateway::text, '!', ''))::numeric / \r\n    NULLIF((SELECT total_active_gws FROM ActiveGateways), 0)) * 100, 1) AS \"Mesh Reach %\",\r\n  \r\n  MIN(m.hop_start - m.hop_limit) AS \"Closest Gateway (Hops)\",\r\n  MAX(m.rx_snr) AS \"Best SNR\",\r\n  STRING_AGG(DISTINCT COALESCE(gn.long_name, REPLACE(m.reporting_gateway::text, '!', '')), ', ') AS \"Reporting Gateways\"\r\n\r\nFROM mesh_packet_metrics m\r\nLEFT JOIN node_details gn ON REPLACE(m.reporting_gateway::text, '!', '') = REPLACE(gn.node_id::text, '!', '')\r\nWHERE $__timeFilter(m.time)\r\n  AND REPLACE(m.source_id::text, '!', '') IN (${node_id:singlequote})\r\n  AND m.portnum IN (${message_type:singlequote})\r\n  AND TRIM(REPLACE(substring(gn.last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) IN (${mqtt_region:singlequote})\r\n  AND substring(gn.last_heard_topic from '/([^/]+)/[^/]+$') IN (${channel:singlequote})\r\nGROUP BY m.packet_id, m.portnum\r\nORDER BY \"Time Sent\" DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Per-packet metrics",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "allowCustomValue": false,
+        "current": {
+          "text": [
+            "TEXT_MESSAGE_APP"
+          ],
+          "value": [
+            "TEXT_MESSAGE_APP"
+          ]
+        },
+        "definition": "SELECT DISTINCT portnum \nFROM mesh_packet_metrics \nWHERE $__timeFilter(time)\n  AND portnum IS NOT NULL \n  AND portnum != ''\nORDER BY portnum ASC;",
+        "includeAll": true,
+        "label": "Message Type",
+        "multi": true,
+        "name": "message_type",
+        "options": [],
+        "query": "SELECT DISTINCT portnum \nFROM mesh_packet_metrics \nWHERE $__timeFilter(time)\n  AND portnum IS NOT NULL \n  AND portnum != ''\nORDER BY portnum ASC;",
+        "refresh": 2,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "allowCustomValue": false,
+        "current": {
+          "text": [
+            "Phoenix"
+          ],
+          "value": [
+            "Phoenix"
+          ]
+        },
+        "definition": "SELECT DISTINCT TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) AS region\nFROM node_details\nWHERE last_heard_topic IS NOT NULL\n  AND TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) != ''\nORDER BY region ASC;",
+        "description": "mqtt_region",
+        "includeAll": true,
+        "label": "MQTT Region",
+        "multi": true,
+        "name": "mqtt_region",
+        "options": [],
+        "query": "SELECT DISTINCT TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) AS region\nFROM node_details\nWHERE last_heard_topic IS NOT NULL\n  AND TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) != ''\nORDER BY region ASC;",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "TedM G2 v2",
+          "value": "2687837908"
+        },
+        "definition": "SELECT long_name AS __text, REPLACE(node_id::text, '!', '') AS __value \nFROM node_details \nORDER BY long_name ASC;",
+        "description": "",
+        "includeAll": true,
+        "label": "Node",
+        "name": "node_id",
+        "options": [],
+        "query": "SELECT long_name AS __text, REPLACE(node_id::text, '!', '') AS __value \nFROM node_details \nORDER BY long_name ASC;",
+        "refresh": 2,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "MediumFast",
+          "value": "MediumFast"
+        },
+        "definition": "SELECT DISTINCT substring(last_heard_topic from '/([^/]+)/[^/]+$') AS channel\nFROM node_details\nWHERE last_heard_topic IS NOT NULL\n  AND substring(last_heard_topic from '/([^/]+)/[^/]+$') != ''\nORDER BY channel ASC;",
+        "description": "",
+        "label": "Channel",
+        "name": "channel",
+        "options": [],
+        "query": "SELECT DISTINCT substring(last_heard_topic from '/([^/]+)/[^/]+$') AS channel\nFROM node_details\nWHERE last_heard_topic IS NOT NULL\n  AND substring(last_heard_topic from '/([^/]+)/[^/]+$') != ''\nORDER BY channel ASC;",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "2026-04-13T23:00:00.000Z",
+    "to": "2026-04-14T00:59:59.000Z"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Mesh Penetration Dive",
+  "uid": "ta4n4jv",
+  "weekStart": ""
+}

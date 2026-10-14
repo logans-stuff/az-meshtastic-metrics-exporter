@@ -1,0 +1,958 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "This dashboard shows how each node heard the node you select at the top. All stats are from the listed nodes and not from the node you select (how they heard you, not how you heard them).",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMax": 15,
+            "axisSoftMin": -15,
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineStyle": {
+              "fill": "solid"
+            },
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "always",
+            "showValues": false,
+            "spanNulls": 43200000,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "fieldMinMax": false,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [
+            "min",
+            "mean",
+            "max",
+            "range",
+            "count"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH NodeNames AS (\r\n  SELECT REPLACE(node_id::text, '!', '') AS clean_id, MAX(long_name) AS long_name\r\n  FROM node_details\r\n  GROUP BY 1\r\n),\r\nGatewayHits AS (\r\n  SELECT\r\n    m.time,\r\n    m.rx_snr AS \"SNR\",\r\n    COALESCE(n.long_name, m.reporting_gateway::text) AS \"Node\"\r\n  FROM mesh_packet_metrics m\r\n  LEFT JOIN NodeNames n ON REPLACE(m.reporting_gateway::text, '!', '') = n.clean_id\r\n  WHERE m.source_id::text IN (${node_id:singlequote})\r\n    AND m.rx_snr IS NOT NULL\r\n    AND (m.hop_start - m.hop_limit) = 0\r\n    AND REPLACE(m.reporting_gateway::text, '!', '') != REPLACE(${node_id:singlequote}, '!', '')\r\n    AND $__timeFilter(m.time)\r\n),\r\nNeighborHistory AS (\r\n  SELECT\r\n    nn.time,\r\n    nn.snr AS \"SNR\",\r\n    COALESCE(n.long_name, nn.node_id::text) AS \"Node\"\r\n  FROM node_neighbors nn\r\n  LEFT JOIN NodeNames n ON REPLACE(nn.node_id::text, '!', '') = n.clean_id\r\n  WHERE REPLACE(nn.neighbor_id::text, '!', '') = REPLACE(${node_id:singlequote}, '!', '')\r\n    AND nn.snr IS NOT NULL\r\n    AND REPLACE(nn.node_id::text, '!', '') != REPLACE(${node_id:singlequote}, '!', '')\r\n    AND $__timeFilter(nn.time)\r\n),\r\nTracerouteInitiator AS (\r\n  SELECT\r\n    m.time,\r\n    m.snr_towards[1] / 4.0 AS \"SNR\",\r\n    COALESCE(n.long_name, REPLACE(m.route_towards[1]::text, '!', '')) AS \"Node\"\r\n  FROM mesh_packet_metrics m\r\n  LEFT JOIN NodeNames n ON REPLACE(m.route_towards[1]::text, '!', '') = n.clean_id\r\n  WHERE m.source_id::text IN (${node_id:singlequote})\r\n    AND m.portnum = 'TRACEROUTE_APP'\r\n    AND m.route_towards IS NOT NULL \r\n    AND array_length(m.route_towards, 1) > 0\r\n    AND m.snr_towards[1] IS NOT NULL\r\n    AND m.snr_towards[1] != -128\r\n    AND $__timeFilter(m.time)\r\n),\r\nTracerouteRelay AS (\r\n  SELECT\r\n    m.time,\r\n    m.snr_towards[(t.idx + 1)::int] / 4.0 AS \"SNR\",\r\n    COALESCE(n.long_name, REPLACE(m.route_towards[(t.idx + 1)::int]::text, '!', '')) AS \"Node\"\r\n  FROM mesh_packet_metrics m\r\n  CROSS JOIN LATERAL unnest(m.route_towards) WITH ORDINALITY AS t(node_id, idx)\r\n  LEFT JOIN NodeNames n ON REPLACE(m.route_towards[(t.idx + 1)::int]::text, '!', '') = n.clean_id\r\n  WHERE m.portnum = 'TRACEROUTE_APP'\r\n    AND m.route_towards IS NOT NULL\r\n    AND REPLACE(t.node_id::text, '!', '') = REPLACE(${node_id:singlequote}, '!', '')\r\n    AND t.idx < array_length(m.route_towards, 1)\r\n    AND m.snr_towards[(t.idx + 1)::int] IS NOT NULL\r\n    AND m.snr_towards[(t.idx + 1)::int] != -128\r\n    AND $__timeFilter(m.time)\r\n)\r\nSELECT * FROM GatewayHits\r\nUNION ALL\r\nSELECT * FROM NeighborHistory\r\nUNION ALL\r\nSELECT * FROM TracerouteInitiator\r\nUNION ALL\r\nSELECT * FROM TracerouteRelay\r\nORDER BY time ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Rx SNR of direct gateways and outbound traceroutes",
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "Node"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": false
+            }
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds",
+            "seriesBy": "last"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 44,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineStyle": {
+              "fill": "solid"
+            },
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "log": 2,
+              "type": "symlog"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": 1800000,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "decimals": 0,
+          "fieldMinMax": false,
+          "mappings": [],
+          "min": 0,
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "semi-dark-orange",
+                "value": 1
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "green",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  -- The time the packet was first heard\r\n  MIN(time) AS \"time\",\r\n  \r\n  -- A static name so all packets form a single series\r\n  'Gateways Reached' AS \"metric\",\r\n  \r\n  -- Count how many distinct gateways heard this exact packet\r\n  COUNT(DISTINCT REPLACE(reporting_gateway::text, '!', '')) AS \"value\"\r\n  \r\nFROM mesh_packet_metrics\r\nWHERE source_id::text IN (${node_id:singlequote})\r\n  AND reporting_gateway IS NOT NULL\r\n  AND $__timeFilter(time)\r\n  \r\n-- Grouping by the packet, NOT the gateway\r\nGROUP BY COALESCE(packet_id::text, time::text)\r\nORDER BY 1 ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Gateways hearing this node",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 16,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": true,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  $__timeGroup(time, $__interval) AS \"time\",\r\n  AVG(battery_level) AS \"Battery %\",\r\n  AVG(channel_utilization) AS \"Channel Util %\"\r\nFROM device_metrics\r\nWHERE node_id::text IN (${node_id:singlequote})\r\n  AND battery_level IS NOT NULL\r\n  AND $__timeFilter(time)\r\nGROUP BY 1\r\nORDER BY 1 ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Battery & Ch Util",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false,
+            "minWidth": 50,
+            "wrapHeaderText": false,
+            "wrapText": false
+          },
+          "decimals": 1,
+          "mappings": [],
+          "max": 10,
+          "min": -25,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Min SNR"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "lcd",
+                  "type": "gauge",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-orange",
+                  "mode": "shades"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg SNR"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "lcd",
+                  "type": "gauge"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "shades"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Max SNR"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "lcd",
+                  "type": "gauge",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-green",
+                  "mode": "shades"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Samples"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node ID"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom.viz",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Receiver Node"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"Node ID\"]}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH RawSNR AS (\r\n  -- Source 1: Direct Gateway Hits\r\n  SELECT\r\n    m.time,\r\n    REPLACE(m.reporting_gateway::text, '!', '') AS receiver_id,\r\n    m.rx_snr / 4.0 AS snr\r\n  FROM mesh_packet_metrics m\r\n  WHERE m.source_id::text IN (${node_id:singlequote})\r\n    AND m.rx_snr IS NOT NULL\r\n    AND (m.hop_start - m.hop_limit) = 0\r\n    AND REPLACE(m.reporting_gateway::text, '!', '') != REPLACE(${node_id:singlequote}, '!', '')\r\n    AND $__timeFilter(m.time)\r\n\r\n  UNION ALL\r\n\r\n  -- Source 2: Traceroute First-Hops\r\n  SELECT\r\n    m.time,\r\n    REPLACE(m.route_towards[1]::text, '!', '') AS receiver_id,\r\n    m.snr_towards[1] / 4.0 AS snr\r\n  FROM mesh_packet_metrics m\r\n  WHERE m.source_id::text IN (${node_id:singlequote})\r\n    AND m.portnum = 'TRACEROUTE_APP'\r\n    AND m.route_towards IS NOT NULL \r\n    AND array_length(m.route_towards, 1) > 0\r\n    AND m.snr_towards[1] IS NOT NULL\r\n    AND $__timeFilter(m.time)\r\n\r\n  UNION ALL\r\n\r\n  -- Source 3: NeighborInfo \"Gossip\"\r\n  SELECT\r\n    m.time,\r\n    REPLACE(m.source_id::text, '!', '') AS receiver_id,\r\n    val.snr / 4.0 AS snr\r\n  FROM mesh_packet_metrics m\r\n  CROSS JOIN LATERAL unnest(m.route_towards, m.snr_towards) AS val(heard_node, snr)\r\n  WHERE m.portnum = 'NEIGHBORINFO_APP'\r\n    AND REPLACE(val.heard_node::text, '!', '') = REPLACE(${node_id:singlequote}, '!', '')\r\n    AND val.snr IS NOT NULL\r\n    AND REPLACE(m.source_id::text, '!', '') != REPLACE(${node_id:singlequote}, '!', '')\r\n    AND $__timeFilter(m.time)\r\n),\r\nNodeNames AS (\r\n  SELECT REPLACE(node_id::text, '!', '') AS clean_id, MAX(long_name) AS long_name\r\n  FROM node_details\r\n  GROUP BY 1\r\n)\r\n\r\nSELECT\r\n  -- \ud83d\udccd Added the raw Node ID here\r\n  r.receiver_id AS \"Node ID\",\r\n  \r\n  COALESCE(n.long_name, 'Unknown (!' || r.receiver_id || ')') AS \"Receiver Node\",\r\n  COUNT(r.snr) AS \"Samples\",\r\n  ROUND(MIN(r.snr)::numeric, 2) AS \"Min SNR\",\r\n  ROUND(AVG(r.snr)::numeric, 2) AS \"Avg SNR\",\r\n  ROUND(MAX(r.snr)::numeric, 2) AS \"Max SNR\"\r\nFROM RawSNR r\r\nLEFT JOIN NodeNames n ON r.receiver_id = n.clean_id\r\n\r\n-- \ud83d\udeab THE BULLETPROOF GHOST FILTER \ud83d\udeab\r\n-- 1. Catch the raw hex IDs (handling case sensitivity)\r\nWHERE LOWER(r.receiver_id) NOT IN ('ffffffff', '^all')\r\n-- 2. Catch the resolved name from the database join\r\n  AND LOWER(COALESCE(n.long_name, r.receiver_id)) NOT LIKE '%broadcast%'\r\n\r\n-- \ud83d\udccd Updated the GROUP BY to include both the ID and the Name\r\nGROUP BY r.receiver_id, COALESCE(n.long_name, 'Unknown (!' || r.receiver_id || ')')\r\nORDER BY \"Samples\" DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "SNR Variance over period",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "always",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [
+            "count"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "Count",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH GatewayNames AS (\r\n  -- Get clean names without the '!'\r\n  SELECT REPLACE(node_id::text, '!', '') AS clean_id, MAX(long_name) AS long_name\r\n  FROM node_details\r\n  GROUP BY 1\r\n)\r\nSELECT\r\n  $__timeGroup(m.time, $__interval) AS \"time\",\r\n  COALESCE(n.long_name, m.reporting_gateway::text) AS \"metric\",\r\n  AVG(m.hop_start - m.hop_limit) AS \"value\"\r\nFROM mesh_packet_metrics m\r\nLEFT JOIN GatewayNames n ON REPLACE(m.reporting_gateway::text, '!', '') = n.clean_id\r\nWHERE m.source_id::text IN (${node_id:singlequote})\r\n  AND m.reporting_gateway IS NOT NULL\r\n  \r\n  -- Prevent the node from showing up as its own gateway if it's connected to WiFi/Ethernet\r\n  AND REPLACE(m.reporting_gateway::text, '!', '') != REPLACE(${node_id:singlequote}, '!', '')\r\n  \r\n  AND m.hop_start IS NOT NULL \r\n  AND m.hop_limit IS NOT NULL\r\n  AND $__timeFilter(m.time)\r\nGROUP BY 1, 2\r\nORDER BY 1 ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Hop count by gateway over time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": [],
+          "max": 15,
+          "min": -15,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": -10
+              },
+              {
+                "color": "#EAB839",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              },
+              {
+                "color": "dark-purple",
+                "value": 98
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byValue",
+              "options": {
+                "op": "gte",
+                "reducer": "max",
+                "value": 98
+              }
+            },
+            "properties": []
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 47
+      },
+      "id": 7,
+      "options": {
+        "basemap": {
+          "config": {},
+          "name": "Layer 0",
+          "noRepeat": false,
+          "type": "default"
+        },
+        "controls": {
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showDebug": false,
+          "showMeasure": false,
+          "showScale": false,
+          "showZoom": true
+        },
+        "layers": [
+          {
+            "config": {
+              "blur": 31,
+              "radius": 24,
+              "weight": {
+                "field": "Avg SNR",
+                "fixed": 1,
+                "max": 1,
+                "min": 0
+              }
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "A"
+            },
+            "layer-tooltip": false,
+            "location": {
+              "mode": "auto"
+            },
+            "name": "Layer 2",
+            "opacity": 0.7,
+            "tooltip": true,
+            "type": "heatmap"
+          },
+          {
+            "config": {
+              "showLegend": true,
+              "style": {
+                "color": {
+                  "field": "Avg SNR",
+                  "fixed": "dark-green"
+                },
+                "opacity": 1,
+                "rotation": {
+                  "fixed": 0,
+                  "max": 360,
+                  "min": -360,
+                  "mode": "mod"
+                },
+                "size": {
+                  "field": "Is Selected Node",
+                  "fixed": 5,
+                  "max": 15,
+                  "min": 1
+                },
+                "symbol": {
+                  "fixed": "img/icons/marker/circle.svg",
+                  "mode": "fixed"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                },
+                "textConfig": {
+                  "fontSize": 12,
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "textAlign": "center",
+                  "textBaseline": "middle"
+                }
+              }
+            },
+            "layer-tooltip": true,
+            "name": "Layer 1",
+            "tooltip": true,
+            "type": "markers"
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        },
+        "view": {
+          "allLayers": true,
+          "id": "fit",
+          "lat": 0,
+          "lon": 0,
+          "noRepeat": false,
+          "zoom": 15
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH RawSNR AS (\r\n  -- Source 1: Direct Gateway Hits\r\n  SELECT\r\n    m.time,\r\n    REPLACE(m.reporting_gateway::text, '!', '') AS receiver_id,\r\n    m.rx_snr / 4.0 AS snr\r\n  FROM mesh_packet_metrics m\r\n  WHERE m.source_id::text IN (${node_id:singlequote})\r\n    AND m.rx_snr IS NOT NULL\r\n    AND (m.hop_start - m.hop_limit) = 0\r\n    AND REPLACE(m.reporting_gateway::text, '!', '') != REPLACE(${node_id:singlequote}, '!', '')\r\n    AND $__timeFilter(m.time)\r\n\r\n  UNION ALL\r\n\r\n  -- Source 2: Traceroute First-Hops\r\n  SELECT\r\n    m.time,\r\n    REPLACE(m.route_towards[1]::text, '!', '') AS receiver_id,\r\n    m.snr_towards[1] / 4.0 AS snr\r\n  FROM mesh_packet_metrics m\r\n  WHERE m.source_id::text IN (${node_id:singlequote})\r\n    AND m.portnum = 'TRACEROUTE_APP'\r\n    AND m.route_towards IS NOT NULL \r\n    AND array_length(m.route_towards, 1) > 0\r\n    AND m.snr_towards[1] IS NOT NULL\r\n    AND $__timeFilter(m.time)\r\n\r\n  UNION ALL\r\n\r\n  -- Source 3: NeighborInfo \"Gossip\"\r\n  SELECT\r\n    m.time,\r\n    REPLACE(m.source_id::text, '!', '') AS receiver_id,\r\n    val.snr / 4.0 AS snr\r\n  FROM mesh_packet_metrics m\r\n  CROSS JOIN LATERAL unnest(m.route_towards, m.snr_towards) AS val(heard_node, snr)\r\n  WHERE m.portnum = 'NEIGHBORINFO_APP'\r\n    AND REPLACE(val.heard_node::text, '!', '') = REPLACE(${node_id:singlequote}, '!', '')\r\n    AND val.snr IS NOT NULL\r\n    AND REPLACE(m.source_id::text, '!', '') != REPLACE(${node_id:singlequote}, '!', '')\r\n    AND $__timeFilter(m.time)\r\n),\r\nReceiverLocations AS (\r\n  SELECT \r\n    REPLACE(node_id::text, '!', '') AS clean_id, \r\n    MAX(long_name) AS long_name,\r\n    MAX(latitude) / 10000000.0 AS lat, \r\n    MAX(longitude) / 10000000.0 AS lon\r\n  FROM node_details\r\n  WHERE latitude IS NOT NULL AND longitude IS NOT NULL\r\n  GROUP BY 1\r\n)\r\n\r\n-- 1. THE RECEIVERS\r\nSELECT\r\n  l.lat AS latitude,\r\n  l.lon AS longitude,\r\n  COALESCE(l.long_name, 'Unknown (!' || r.receiver_id || ')') AS \"Receiver\",\r\n  ROUND(AVG(r.snr)::numeric, 1) AS \"Avg SNR\",\r\n  \r\n  -- The New Columns\r\n  r.receiver_id AS \"Node ID\",\r\n  0 AS \"Is Selected Node\"\r\n\r\nFROM RawSNR r\r\nJOIN ReceiverLocations l ON r.receiver_id = l.clean_id\r\nWHERE LOWER(r.receiver_id) NOT IN ('ffffffff', '^all')\r\n  AND LOWER(COALESCE(l.long_name, r.receiver_id)) NOT LIKE '%broadcast%'\r\nGROUP BY 1, 2, 3, 5\r\n\r\nUNION ALL\r\n\r\n-- 2. THE INJECTED SOURCE NODE\r\nSELECT\r\n  MAX(latitude) / 10000000.0 AS latitude,\r\n  MAX(longitude) / 10000000.0 AS longitude,\r\n  COALESCE(MAX(long_name), 'Target Node') || ' (\u2b50 SOURCE)' AS \"Receiver\",\r\n  99.9 AS \"Avg SNR\",\r\n  \r\n  -- The New Columns (Forcing a 1 and injecting the selected ID)\r\n  REPLACE(${node_id:singlequote}, '!', '') AS \"Node ID\",\r\n  20 AS \"Is Selected Node\"\r\n\r\nFROM node_details\r\nWHERE REPLACE(node_id::text, '!', '') = REPLACE(${node_id:singlequote}, '!', '')\r\n  AND latitude IS NOT NULL\r\n  AND longitude IS NOT NULL;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "SNR Map",
+      "type": "geomap"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "allowCustomValue": false,
+        "current": {
+          "text": "Tower Climber",
+          "value": "Tower Climber"
+        },
+        "definition": "SELECT long_name FROM node_details ORDER BY long_name ASC;",
+        "label": "Node Name",
+        "name": "node_name",
+        "options": [],
+        "query": "SELECT long_name FROM node_details ORDER BY long_name ASC;",
+        "refresh": 1,
+        "regex": "",
+        "sort": 5,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "2613504971",
+          "value": "2613504971"
+        },
+        "definition": "SELECT node_id FROM node_details WHERE long_name IN (${node_name:singlequote});",
+        "label": "Node ID",
+        "name": "node_id",
+        "options": [],
+        "query": "SELECT node_id FROM node_details WHERE long_name IN (${node_name:singlequote});",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Single Node Investigation - Outbound",
+  "uid": "tad98g7",
+  "weekStart": ""
+}

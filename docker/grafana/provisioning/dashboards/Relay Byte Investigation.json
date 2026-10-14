@@ -1,0 +1,324 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 13,
+        "w": 23,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \r\n  long_name AS \"Node Name\",\r\n  '!' || lower(to_hex(REPLACE(node_id::text, '!', '')::bigint)) AS \"Hex ID\",\r\n  REPLACE(node_id::text, '!', '') AS \"Decimal ID\",\r\n  role AS \"Hardware Role\",\r\n  hardware_model AS \"Hardware\",\r\n  -- Extract their primary region if available\r\n  TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) AS \"MQTT Region\",\r\n  last_heard_topic AS \"Last Topic\"\r\nFROM node_details\r\nWHERE \r\n  -- Find matches, including the 00/FF quirk!\r\n  MOD(REPLACE(node_id::text, '!', '')::numeric, 256) = NULLIF('${relay_byte}', '')::numeric\r\n  OR (NULLIF('${relay_byte}', '')::numeric = 255 AND MOD(REPLACE(node_id::text, '!', '')::numeric, 256) = 0)\r\nORDER BY long_name ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "All Suspects",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gateway_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "filter to this gateway",
+                    "url": "/d/${__dashboard.uid}/${__dashboard.url}?var-relay_byte=${relay_byte}&var-node_id=${__data.fields[\"gateway_id\"]}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 23,
+        "x": 0,
+        "y": 13
+      },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  -- We select the raw ID first so we can use it as a hidden Data Link variable\r\n  REPLACE(m.reporting_gateway::text, '!', '') AS \"gateway_id\",\r\n  \r\n  -- The friendly name for the UI\r\n  COALESCE(MAX(n.long_name), REPLACE(m.reporting_gateway::text, '!', '')) AS \"Gateway Name\",\r\n  COUNT(m.packet_id) AS \"Packets Uploaded\",\r\n  MAX(m.time) AS \"Last Upload Time\",\r\n  ROUND((EXTRACT(EPOCH FROM (NOW() - MAX(m.time))) / 3600)::numeric, 1) || ' hrs ago' AS \"Time Since Upload\"\r\nFROM mesh_packet_metrics m\r\nLEFT JOIN node_details n ON REPLACE(m.reporting_gateway::text, '!', '') = REPLACE(n.node_id::text, '!', '')\r\nWHERE m.relay_node = NULLIF('${relay_byte}', '')::numeric\r\n  AND m.reporting_gateway IS NOT NULL\r\n  AND $__timeFilter(m.time)\r\nGROUP BY 1\r\nORDER BY \"Packets Uploaded\" DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Gateways hearing this relay byte",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 20,
+        "w": 23,
+        "x": 0,
+        "y": 22
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH Suspects AS (\r\n  -- 1. Get the pool of mathematically matching nodes (handling the FF/00 quirk)\r\n  SELECT\r\n    REPLACE(node_id::text, '!', '') AS suspect_id,\r\n    long_name,\r\n    hardware_model\r\n  FROM node_details\r\n  WHERE MOD(REPLACE(node_id::text, '!', '')::numeric, 256) = NULLIF('${relay_byte}', '')::numeric\r\n     OR (NULLIF('${relay_byte}', '')::numeric = 255 AND MOD(REPLACE(node_id::text, '!', '')::numeric, 256) = 0)\r\n),\r\nDirectContacts AS (\r\n  -- 2. Find every time the selected Gateway heard one of these suspects DIRECTLY (0 hops)\r\n  SELECT\r\n    REPLACE(source_id::text, '!', '') AS suspect_id,\r\n    MAX(time) AS last_contact,\r\n    COUNT(packet_id) AS total_direct_packets,\r\n    ROUND(AVG(rx_snr)::numeric, 2) AS avg_snr,\r\n    MAX(rx_snr) AS best_snr,\r\n    MIN(rx_snr) AS worst_snr\r\n  FROM mesh_packet_metrics\r\n  WHERE REPLACE(reporting_gateway::text, '!', '') = REPLACE('${node_id}', '!', '')\r\n    -- \ud83d\udccd DEFINING \"DIRECT\": The packet hasn't lost any hops\r\n    AND hop_start = hop_limit \r\n    AND $__timeFilter(time)\r\n  GROUP BY 1\r\n)\r\n\r\n-- 3. Output the final filtered list\r\nSELECT\r\n  s.long_name || ' (!' || lower(to_hex(s.suspect_id::bigint)) || ')' AS \"Verified Suspect\",\r\n  s.hardware_model AS \"Hardware\",\r\n  d.last_contact AS \"Last Direct RX\",\r\n  ROUND((EXTRACT(EPOCH FROM (NOW() - d.last_contact)) / 3600)::numeric, 1) || ' hrs ago' AS \"Time Elapsed\",\r\n  d.total_direct_packets AS \"Direct Packets Caught\",\r\n  d.avg_snr AS \"Avg SNR\",\r\n  d.best_snr AS \"Best SNR\",\r\n  d.worst_snr AS \"Worst SNR\"\r\nFROM Suspects s\r\n-- \ud83d\udccd Using an INNER JOIN so it ONLY shows suspects this gateway has actually heard!\r\nJOIN DirectContacts d ON s.suspect_id = d.suspect_id\r\nORDER BY d.last_contact DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Gateway Adjacency",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "label": "Relay Byte",
+        "name": "relay_byte",
+        "options": [],
+        "query": "",
+        "type": "custom"
+      },
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "definition": "",
+        "label": "Gateway ID",
+        "name": "node_id",
+        "options": [],
+        "query": "",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Relay Byte Investigation",
+  "uid": "tav2jjn",
+  "weekStart": ""
+}

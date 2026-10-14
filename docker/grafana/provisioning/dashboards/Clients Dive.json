@@ -1,0 +1,155 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node Name"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"Node ID\"]}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node ID"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom.viz",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Promotion Score"
+          }
+        ]
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH ForwardNeighborStats AS (\r\n  SELECT node_id::text, COUNT(neighbor_id) AS forward_neighbor_count\r\n  FROM node_neighbors\r\n  GROUP BY node_id\r\n),\r\nReverseNeighborStats AS (\r\n  SELECT neighbor_id::text, COUNT(DISTINCT node_id) AS reverse_neighbor_count\r\n  FROM node_neighbors\r\n  GROUP BY neighbor_id\r\n),\r\nActivityStats AS (\r\n  SELECT \r\n    source_id::text, \r\n    COUNT(DISTINCT CASE WHEN (hop_start - hop_limit) = 0 THEN date_trunc('hour', time) END) AS direct_los_hours,\r\n    COUNT(DISTINCT CASE WHEN (hop_start - hop_limit) > 0 OR hop_start IS NULL THEN relay_node END) AS indirect_gateways\r\n  FROM mesh_packet_metrics\r\n  WHERE time >= NOW() - INTERVAL '7 days'\r\n  GROUP BY source_id\r\n),\r\nRelayStats AS (\r\n  SELECT \r\n    rt::text AS relay_node_id,\r\n    COUNT(DISTINCT m.source_id) AS unique_tr_sources\r\n  FROM mesh_packet_metrics m, unnest(m.route_towards) AS rt\r\n  WHERE m.portnum = 'TRACEROUTE_APP' \r\n    AND m.route_towards IS NOT NULL\r\n    AND m.time >= NOW() - INTERVAL '7 days'\r\n    AND rt::text != m.source_id::text\r\n    AND rt::text != m.destination_id::text\r\n  GROUP BY rt::text\r\n)\r\nSELECT \r\n  n.long_name AS \"Node Name\",\r\n  n.node_id AS \"Node ID\",\r\n  COALESCE(n.role, 'CLIENT') AS \"Current Role\",\r\n  \r\n  -- NEW: MQTT Topic Extractions\r\n  substring(n.last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$') AS \"Channel\",\r\n  TRIM(\r\n    REPLACE(\r\n      substring(n.last_heard_topic from '^msh/(.*?)/2/[ce]/'), \r\n      'US/AZ/', \r\n      ''\r\n    )\r\n  ) AS \"MQTT Region\",\r\n  \r\n  -- THE FIREHOSE SCORE\r\n  ROUND(\r\n    (COALESCE(a.direct_los_hours, 0) * 8) + \r\n    (COALESCE(fns.forward_neighbor_count, 0) * 12) + \r\n    (COALESCE(rns.reverse_neighbor_count, 0) * 12) + \r\n    \r\n    (SQRT(COALESCE(r.unique_tr_sources, 0)) * LEAST(COALESCE(fns.forward_neighbor_count, 0) + COALESCE(rns.reverse_neighbor_count, 0), 20)) +\r\n    \r\n    (COALESCE(a.indirect_gateways, 0) * 1)\r\n  )::int AS \"Promotion Score\",\r\n  \r\n  (COALESCE(fns.forward_neighbor_count, 0) + COALESCE(rns.reverse_neighbor_count, 0)) AS \"Total Neighbors\",\r\n  COALESCE(r.unique_tr_sources, 0) AS \"Unique Users Routed\",\r\n  COALESCE(a.direct_los_hours, 0) AS \"Direct LOS Hours\"\r\n  \r\nFROM node_details n\r\nJOIN ActivityStats a ON n.node_id::text = a.source_id\r\nLEFT JOIN RelayStats r ON n.node_id::text = r.relay_node_id\r\nLEFT JOIN ForwardNeighborStats fns ON n.node_id::text = fns.node_id\r\nLEFT JOIN ReverseNeighborStats rns ON n.node_id::text = rns.neighbor_id\r\nWHERE \r\n  (COALESCE(n.role, 'CLIENT') IN ('CLIENT', 'CLIENT_BASE'))\r\n  AND (COALESCE(fns.forward_neighbor_count, 0) + COALESCE(rns.reverse_neighbor_count, 0)) >= 2 \r\nORDER BY \r\n  \"Promotion Score\" DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Clients that could maybe become a router",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-2d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Clients Dive",
+  "uid": "ta2lcfb",
+  "weekStart": ""
+}
