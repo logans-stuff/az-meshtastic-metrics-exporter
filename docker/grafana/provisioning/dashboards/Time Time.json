@@ -1,0 +1,204 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Raw From Node ID"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom.viz",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Raw To Node ID"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom.viz",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Packet ID"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/packet/${__data.fields[\"Packet ID\"]}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "From Gateway"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"Raw From Node ID\"]}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "To Gateway"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"Raw To Node ID\"]}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 17,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Latency (Sec)"
+          }
+        ]
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH GatewayLocations AS (\r\n  -- Grab the most recent known GPS coordinate for every gateway\r\n  SELECT \r\n    node_id::text AS node_id, \r\n    MAX(latitude) AS lat, \r\n    MAX(longitude) AS lon\r\n  FROM position_metrics\r\n  WHERE latitude IS NOT NULL \r\n    AND longitude IS NOT NULL\r\n  GROUP BY node_id\r\n)\r\n\r\nSELECT\r\n  m1.packet_id::text AS \"Packet ID\",\r\n  \r\n  -- The Origin Gateway (Heard the early version of the packet)\r\n  COALESCE(n1.long_name, 'Unknown (!' || m1.reporting_gateway || ')') AS \"From Gateway\",\r\n  m1.reporting_gateway::text AS \"Raw From Node ID\",\r\n  \r\n  -- The Destination Gateway (Heard the rebroadcasted version later)\r\n  COALESCE(n2.long_name, 'Unknown (!' || m2.reporting_gateway || ')') AS \"To Gateway\",\r\n  m2.reporting_gateway::text AS \"Raw To Node ID\",\r\n  \r\n  -- THE NEW METRIC: Exactly how many times did it route?\r\n  (m1.hop_limit - m2.hop_limit) AS \"Hops\",\r\n  \r\n  -- The Latency\r\n  (m2.rx_time - m1.rx_time) AS \"Latency (Sec)\",\r\n  \r\n  -- The Math: Haversine Distance in Miles\r\n  ROUND(\r\n    (3959.0 * acos(\r\n      LEAST(GREATEST(\r\n        cos(radians(loc1.lat)) * cos(radians(loc2.lat)) * cos(radians(loc2.lon) - radians(loc1.lon)) + \r\n        sin(radians(loc1.lat)) * sin(radians(loc2.lat))\r\n      , -1.0), 1.0)\r\n    ))::numeric, 2\r\n  ) AS \"Distance (Miles)\",\r\n  \r\n  -- The Final Metric: Speed (Miles per Second)\r\n  ROUND(\r\n    (\r\n      (3959.0 * acos(LEAST(GREATEST(cos(radians(loc1.lat)) * cos(radians(loc2.lat)) * cos(radians(loc2.lon) - radians(loc1.lon)) + sin(radians(loc1.lat)) * sin(radians(loc2.lat)), -1.0), 1.0)))\r\n      / NULLIF((m2.rx_time - m1.rx_time), 0)\r\n    )::numeric, 3\r\n  ) AS \"Speed (Mi/s)\"\r\n\r\n-- The Self-Join: Match the exact same packet heard by two different gateways\r\nFROM mesh_packet_metrics m1\r\nJOIN mesh_packet_metrics m2 \r\n  ON m1.packet_id = m2.packet_id \r\n  AND m1.reporting_gateway != m2.reporting_gateway \r\n  \r\n  -- Ensure m1 is the gateway that heard it FIRST\r\n  AND m1.rx_time < m2.rx_time\r\n  \r\n-- Attach the node names for readability\r\nLEFT JOIN node_details n1 ON m1.reporting_gateway::text = n1.node_id::text\r\nLEFT JOIN node_details n2 ON m2.reporting_gateway::text = n2.node_id::text\r\n\r\n-- Attach the GPS coordinates from our CTE\r\nJOIN GatewayLocations loc1 ON m1.reporting_gateway::text = loc1.node_id\r\nJOIN GatewayLocations loc2 ON m2.reporting_gateway::text = loc2.node_id\r\n\r\nWHERE $__timeFilter(m1.time)\r\n\r\n  -- THE HOP FILTER: Prove it physically traveled across the mesh\r\n  AND m1.hop_limit IS NOT NULL \r\n  AND m2.hop_limit IS NOT NULL\r\n  AND (m1.hop_limit - m2.hop_limit) >= 2\r\n  \r\n  -- THE CO-LOCATION FILTER: Ignore gateways sitting on the exact same desk\r\n  AND ROUND(loc1.lat::numeric, 4) != ROUND(loc2.lat::numeric, 4)\r\n\r\nORDER BY \"Distance (Miles)\" DESC\r\nLIMIT 20;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "New panel",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Time Time",
+  "uid": "tavm8m9",
+  "weekStart": ""
+}

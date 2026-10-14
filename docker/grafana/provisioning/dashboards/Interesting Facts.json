@@ -1,0 +1,591 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed+area"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "#EAB839",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Telemetry per Hour"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"Raw Node ID\"]}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "barRadius": 0.35,
+        "barWidth": 0.97,
+        "colorByField": "Telemetry per Hour",
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  COALESCE(n.long_name, 'Unknown (!' || m.source_id || ')') AS \"Node Name\",\r\n  m.source_id::text AS \"Raw Node ID\",\r\n  \r\n  -- DYNAMIC MATH: Total Packets / Total Hours Selected\r\n  ROUND(COUNT(DISTINCT m.packet_id) / (($__to - $__from) / 3600000.0), 2) AS \"Telemetry per Hour\",\r\n  \r\n  -- DYNAMIC INTERVAL: Total Minutes Selected / Total Packets\r\n  ROUND((($__to - $__from) / 60000.0) / COUNT(DISTINCT m.packet_id), 0)::text || ' Mins' AS \"Interval\",\r\n  \r\n  COALESCE(substring(n.last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$'), 'Unknown') AS \"Channel\",\r\n  COALESCE(TRIM(REPLACE(substring(n.last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')), 'Unknown') AS \"Location\"\r\n\r\nFROM mesh_packet_metrics m\r\nLEFT JOIN node_details n ON m.source_id::text = n.node_id::text\r\n\r\n-- DYNAMIC TIME FILTER: Replaces \"NOW() - INTERVAL '48 hours'\"\r\nWHERE $__timeFilter(m.time)\r\n  AND m.portnum = 'TELEMETRY_APP'\r\n  AND m.destination_id = '4294967295' \r\nGROUP BY n.long_name, m.source_id, n.last_heard_topic\r\n\r\n-- DYNAMIC SPAM FILTER: Instead of a flat packet count, we filter by their RATE.\r\n-- This catches anyone averaging > 1 telemetry packet per hour, regardless of the time window chosen.\r\nHAVING (COUNT(DISTINCT m.packet_id) / (($__to - $__from) / 3600000.0)) > 1.0 \r\n\r\nORDER BY \"Telemetry per Hour\" DESC\r\nLIMIT 20;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Telemetry packets per hour averaged over window",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "hue",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed+area"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "#EAB839",
+                "value": 6
+              },
+              {
+                "color": "red",
+                "value": 12
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Traceroutes per Hour"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "oneClick": false,
+                    "targetBlank": true,
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"Raw Node ID\"]}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "barRadius": 0.35,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xField": "Node Name",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  -- Use COALESCE in case a node hasn't announced its name yet\r\n  COALESCE(n.long_name, 'Unknown (!' || n.node_id || ')') AS \"Node Name\",\r\n  \r\n  -- Expose the raw ID as text for Grafana Data Links\r\n  n.node_id::text AS \"Raw Node ID\",\r\n  \r\n  -- DYNAMIC MATH: Total Packets / Total Hours Selected\r\n  ROUND(COUNT(DISTINCT m.packet_id) / (($__to - $__from) / 3600000.0), 2) AS \"Traceroutes per Hour\",\r\n  \r\n  -- DYNAMIC INTERVAL: Total Minutes Selected / Total Packets\r\n  ROUND((($__to - $__from) / 60000.0) / COUNT(DISTINCT m.packet_id), 0)::text || ' Mins' AS \"Interval\",\r\n  \r\n  -- Extracting the Channel via regex\r\n  COALESCE(substring(n.last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$'), 'Unknown') AS \"Channel\",\r\n  \r\n  -- Extracting and cleaning the Region via regex\r\n  COALESCE(\r\n    TRIM(\r\n      REPLACE(\r\n        substring(n.last_heard_topic from '^msh/(.*?)/2/[ce]/'), \r\n        'US/AZ/', \r\n        ''\r\n      )\r\n    ), 'Unknown'\r\n  ) AS \"Location\"\r\n\r\nFROM mesh_packet_metrics m\r\nJOIN node_details n ON m.source_id::text = n.node_id::text\r\n\r\n-- DYNAMIC TIME FILTER: Tied directly to the Grafana dashboard time picker\r\nWHERE $__timeFilter(m.time)\r\n  AND m.portnum = 'TRACEROUTE_APP'\r\n\r\nGROUP BY n.long_name, n.node_id, n.last_heard_topic\r\n\r\n-- DYNAMIC SPAM FILTER: Catch anyone running more than 1 trace every 2 hours (> 0.5 per hour)\r\nHAVING (COUNT(DISTINCT m.packet_id) / (($__to - $__from) / 3600000.0)) > 0.5\r\n\r\nORDER BY \"Traceroutes per Hour\" DESC\r\nLIMIT 20;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Nodes by outbound Traceroutes per hour, averaged over window",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed+area"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "#6ED0E0",
+                "value": 0.1
+              },
+              {
+                "color": "#EAB839",
+                "value": 0.3
+              },
+              {
+                "color": "#EF843C",
+                "value": 1
+              },
+              {
+                "color": "#E24D42",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 4
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Position Packets per Hour"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "oneClick": false,
+                    "targetBlank": true,
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"Raw Node ID\"]}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 0,
+        "y": 11
+      },
+      "id": 4,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "colorByField": "Position Packets per Hour",
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "hide": false,
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(n.long_name, 'Unknown (!' || p.node_id || ')') AS \"Node Name\",\n  p.node_id::text AS \"Raw Node ID\", \n  \n  -- DYNAMIC MATH: Total Packets / Total Hours Selected\n  ROUND(COUNT(DISTINCT COALESCE(p.packet_id::text, date_trunc('minute', p.time)::text)) / (($__to - $__from) / 3600000.0), 2) AS \"Position Packets per Hour\",\n\n  -- DYNAMIC INTERVAL: Total Minutes Selected / Total Packets\n  ROUND((($__to - $__from) / 60000.0) / COUNT(DISTINCT COALESCE(p.packet_id::text, date_trunc('minute', p.time)::text)), 0)::text || ' Mins' AS \"Interval\",\n\n  -- Extracting the Channel via regex\n  COALESCE(substring(n.last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$'), 'Unknown') AS \"Channel\",\n  \n  -- Extracting and cleaning the Region via regex\n  COALESCE(\n    TRIM(\n      REPLACE(\n        substring(n.last_heard_topic from '^msh/(.*?)/2/[ce]/'), \n        'US/AZ/', \n        ''\n      )\n    ), 'Unknown'\n  ) AS \"Location\"\n\nFROM position_metrics p\nLEFT JOIN node_details n ON p.node_id::text = n.node_id::text\n\n-- DYNAMIC TIME FILTER: Tied directly to the Grafana dashboard time picker\nWHERE $__timeFilter(p.time)\n  AND p.latitude IS NOT NULL \n  AND p.longitude IS NOT NULL\nGROUP BY n.long_name, p.node_id, n.last_heard_topic\n\n-- THE STATIONARY FILTER\nHAVING (MAX(p.latitude) - MIN(p.latitude)) < 0.02\n   AND (MAX(p.longitude) - MIN(p.longitude)) < 0.02\n   \n   -- DYNAMIC SPAM FILTER: Rate-based instead of flat count\n   -- Catch anyone sitting perfectly still but broadcasting > 2.0 position packets per hour\n   AND (COUNT(DISTINCT COALESCE(p.packet_id::text, date_trunc('minute', p.time)::text)) / (($__to - $__from) / 3600000.0)) > 2.0 \n   \nORDER BY \"Position Packets per Hour\" DESC\nLIMIT 20;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Position reports for stationary nodes, averaged over window",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Mixed --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed+area"
+            }
+          },
+          "fieldMinMax": false,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "#EAB839",
+                "value": 0.081
+              },
+              {
+                "color": "red",
+                "value": 0.34
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Nodeinfo per Hour"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"Raw Node ID\"]}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 12,
+        "y": 11
+      },
+      "id": 2,
+      "options": {
+        "barRadius": 0.35,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        },
+        "xField": "Node Name",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  -- Handle un-named nodes gracefully\r\n  COALESCE(n.long_name, 'Unknown (!' || m.source_id || ')') AS \"Node Name\",\r\n  \r\n  -- Expose the Raw ID as text for Grafana Data Links\r\n  m.source_id::text AS \"Raw Node ID\",\r\n  \r\n  -- DYNAMIC MATH: Total Packets / Total Hours Selected\r\n  ROUND(COUNT(DISTINCT m.packet_id) / (($__to - $__from) / 3600000.0), 2) AS \"Nodeinfo per Hour\",\r\n  \r\n  -- DYNAMIC INTERVAL: Total Minutes Selected / Total Packets\r\n  ROUND((($__to - $__from) / 60000.0) / COUNT(DISTINCT m.packet_id), 0)::text || ' Mins' AS \"Interval\",\r\n\r\n  -- Extracting the Channel via regex\r\n  COALESCE(substring(n.last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$'), 'Unknown') AS \"Channel\",\r\n  \r\n  -- Extracting and cleaning the Region via regex\r\n  COALESCE(\r\n    TRIM(\r\n      REPLACE(\r\n        substring(n.last_heard_topic from '^msh/(.*?)/2/[ce]/'), \r\n        'US/AZ/', \r\n        ''\r\n      )\r\n    ), 'Unknown'\r\n  ) AS \"Location\"\r\n\r\nFROM mesh_packet_metrics m\r\nLEFT JOIN node_details n ON m.source_id::text = n.node_id::text\r\n\r\n-- DYNAMIC TIME FILTER: Tied directly to the Grafana dashboard time picker\r\nWHERE $__timeFilter(m.time)\r\n  AND m.portnum = 'NODEINFO_APP'\r\n  AND m.destination_id = '4294967295' \r\nGROUP BY n.long_name, m.source_id, n.last_heard_topic\r\n\r\n-- DYNAMIC SPAM FILTER: Rate-based instead of flat count\r\n-- Catch anyone broadcasting faster than the 3-hour default (> 0.33 per hour)\r\nHAVING (COUNT(DISTINCT m.packet_id) / (($__to - $__from) / 3600000.0)) > 0.33 \r\n\r\nORDER BY \"Nodeinfo per Hour\" DESC\r\nLIMIT 20;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Nodeinfo per hour averaged over window",
+      "type": "barchart"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-2d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Interesting Facts",
+  "uid": "ta4t7z2",
+  "weekStart": ""
+}

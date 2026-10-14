@@ -1,0 +1,1055 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisBorderShow": true,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "log": 2,
+              "type": "symlog"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": -1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "semi-dark-orange",
+                "value": 1
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 200
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Score"
+            },
+            "properties": [
+              {
+                "id": "fieldMinMax",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Relayed (Jobs Done)"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Self Tx (Noise)"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 19,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "barRadius": 0.25,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "normal",
+        "text": {
+          "valueSize": 1
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xField": "Router",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 100
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH BaseRouters AS (\r\n  SELECT \r\n    node_id, \r\n    long_name, \r\n    CAST(node_id AS bigint) % 256 AS node_byte,\r\n    -- Step 1: Create the aliases\r\n    COALESCE(substring(last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$'), 'Unknown') AS channel,\r\n    COALESCE(TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')), 'Unknown') AS region\r\n  FROM node_details\r\n  WHERE role IN ('ROUTER', 'ROUTER_LATE') AND node_id ~ '^[0-9]+$'\r\n),\r\nRouterNodes AS (\r\n  -- Step 2: Apply the Grafana filters to the newly created aliases\r\n  SELECT * FROM BaseRouters\r\n  WHERE region IN ($Region)\r\n    AND channel IN ($Channel)\r\n),\r\nTrafficStats AS (\r\n  -- Step 3: Proceed with the traffic math using the filtered list\r\n  SELECT\r\n    r.long_name AS router_name,\r\n    r.channel,\r\n    r.region,\r\n    COUNT(CASE WHEN m.source_id = r.node_id THEN 1 END) AS self_tx_total,\r\n    COUNT(CASE WHEN m.source_id = r.node_id AND m.portnum = 'TELEMETRY_APP' THEN 1 END) AS telemetry_tx,\r\n    COUNT(CASE WHEN m.source_id = r.node_id AND m.portnum = 'POSITION_APP' THEN 1 END) AS position_tx,\r\n    COUNT(CASE WHEN m.source_id = r.node_id AND m.portnum = 'NODEINFO_APP' THEN 1 END) AS nodeinfo_tx,\r\n    COUNT(CASE WHEN m.source_id = r.node_id AND m.portnum = 'TRACEROUTE_APP' THEN 1 END) AS traceroute_tx,\r\n    COUNT(CASE WHEN m.relay_node = r.node_byte OR m.next_hop = r.node_byte THEN 1 END) AS relayed_total\r\n  FROM RouterNodes r\r\n  LEFT JOIN mesh_packet_metrics m\r\n    ON (m.source_id = r.node_id OR m.relay_node = r.node_byte OR m.next_hop = r.node_byte)\r\n    AND m.time >= NOW() - INTERVAL '24 hours'\r\n  GROUP BY r.long_name, r.channel, r.region\r\n),\r\nScoredRouters AS (\r\n  SELECT\r\n    router_name,\r\n    channel,\r\n    region,\r\n    self_tx_total,\r\n    relayed_total,\r\n    telemetry_tx,\r\n    position_tx,\r\n    nodeinfo_tx,\r\n    traceroute_tx,\r\n    (self_tx_total + relayed_total) AS total_throughput,\r\n    -- Relays (+5), Traceroutes (+2), Noise (-1)\r\n    (relayed_total * 5) + (traceroute_tx * 2) - (telemetry_tx * 1) - (position_tx * 1) AS router_score\r\n  FROM TrafficStats\r\n)\r\n\r\nSELECT\r\n  router_name AS \"Router\",\r\n  router_score AS \"Score\",\r\n  region AS \"Region\",\r\n  channel AS \"Channel\",\r\n  relayed_total AS \"Relayed (Jobs Done)\",\r\n  self_tx_total AS \"Self Tx (Noise)\",\r\n  CASE \r\n    WHEN (self_tx_total + relayed_total) = 0 THEN '\u274c Offline'\r\n    WHEN router_score < 0 AND relayed_total = 0 THEN '\ud83d\udea8 Demote (Pure Noise)'\r\n    WHEN router_score < 0 AND relayed_total > 0 THEN '\u26a0\ufe0f Noisy'\r\n    WHEN router_score >= 0 AND router_score < 50 THEN '\ud83e\udd49 Marginal'\r\n    WHEN router_score >= 50 AND router_score < 200 THEN '\ud83e\udd48 Good'\r\n    ELSE '\ud83e\udd47 Excellent'\r\n  END AS \"Assessment\"\r\n\r\nFROM ScoredRouters\r\nORDER BY \"Score\" DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Router Leaderboard",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisPlacement": "auto",
+            "fillOpacity": 70,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "mappings": [],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "semi-dark-orange",
+                "value": 5
+              },
+              {
+                "color": "#EAB839",
+                "value": 6
+              },
+              {
+                "color": "green",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "fdsaf",
+                    "url": "https://view.azmsh.net/node/${__field.labels.raw_id}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 19,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "showValue": "never",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "time_series",
+          "hide": false,
+          "rawQuery": true,
+          "rawSql": "WITH OfflineRouters AS (\r\n  -- STEP 1: Identify routers that are CURRENTLY silent (using the Wide Net logic)\r\n  SELECT \r\n    n.node_id,\r\n    -- Custom label logic: Hide the second line if both metadata points are missing\r\n    CASE \r\n      WHEN substring(n.last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$') IS NULL \r\n       AND substring(n.last_heard_topic from '^msh/(.*?)/2/[ce]/') IS NULL\r\n      THEN COALESCE(n.long_name, n.node_id)\r\n      ELSE \r\n        COALESCE(n.long_name, n.node_id) || E'\\n' || \r\n        COALESCE(substring(n.last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$'), 'Unknown') || ' | ' || \r\n        COALESCE(TRIM(REPLACE(substring(n.last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')), 'Unknown')\r\n    END AS card_label\r\n  FROM node_details n\r\n  LEFT JOIN (\r\n      -- Heartbeat check: Relays, Gateways, and Telemetry count as \"Active\"\r\n      SELECT source_id::text AS node_id, \"time\" FROM mesh_packet_metrics\r\n      UNION ALL\r\n      SELECT relay_node::text AS node_id, \"time\" FROM mesh_packet_metrics WHERE relay_node IS NOT NULL\r\n      UNION ALL\r\n      SELECT reporting_gateway::text AS node_id, \"time\" FROM mesh_packet_metrics WHERE reporting_gateway IS NOT NULL\r\n      UNION ALL\r\n      SELECT node_id::text, \"time\" FROM device_metrics\r\n      UNION ALL\r\n      SELECT node_id::text, \"time\" FROM position_metrics\r\n      UNION ALL\r\n      SELECT node_id::text, device_time AS \"time\" FROM node_telemetry WHERE device_time IS NOT NULL\r\n      UNION ALL\r\n      SELECT node_id::text, environment_time AS \"time\" FROM node_telemetry WHERE environment_time IS NOT NULL\r\n      UNION ALL\r\n      SELECT node_id::text, power_time AS \"time\" FROM node_telemetry WHERE power_time IS NOT NULL\r\n  ) m ON n.node_id::text = m.node_id\r\n  WHERE n.role IN ('ROUTER', 'ROUTER_LATE')\r\n  GROUP BY n.node_id, n.long_name, n.last_heard_topic\r\n  HAVING MAX(m.time) < NOW() - INTERVAL '24 hours' OR MAX(m.time) IS NULL\r\n),\r\nTimeGrid AS (\r\n  -- STEP 2: Generate a continuous daily calendar\r\n  SELECT generate_series(\r\n    date_trunc('day', to_timestamp($__from / 1000)),\r\n    date_trunc('day', to_timestamp($__to / 1000)),\r\n    '1 day'::interval\r\n  ) AS day_bucket\r\n),\r\nRouterGrid AS (\r\n  -- STEP 3: Create a slot for every offline router on every day\r\n  SELECT t.day_bucket, o.node_id, o.card_label\r\n  FROM TimeGrid t\r\n  CROSS JOIN OfflineRouters o\r\n)\r\n\r\n-- STEP 4: Final output with raw_id included\r\nSELECT \r\n  r.day_bucket AS \"time\",\r\n  r.card_label AS \"metric\",\r\n  r.node_id AS \"raw_id\",\r\n  COUNT(m.packet_id) AS \"value\"\r\nFROM RouterGrid r\r\nLEFT JOIN mesh_packet_metrics m \r\n  ON r.node_id::text = m.source_id::text \r\n  AND date_trunc('day', m.time) = r.day_bucket\r\n  AND $__timeFilter(m.time)\r\nGROUP BY 1, 2, 3\r\nORDER BY 1 ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Routers not heard from in 24 hours",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^.*metric=\"([\\s\\S]+?)\",.*$",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMax": 100,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 86400000,
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "always",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed+area"
+            }
+          },
+          "mappings": [],
+          "min": -1,
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "#EAB839",
+                "value": 15
+              },
+              {
+                "color": "transparent",
+                "value": 30
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byValue",
+              "options": {
+                "op": "lte",
+                "reducer": "min",
+                "value": 30
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.showValues",
+                "value": true
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "continuous-RdYlGr"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 15
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH FilteredRouters AS (\r\n  -- Pre-flight check: Find routers with active battery movement\r\n  -- Excludes permanently plugged-in/pegged nodes (>=100%) and dead/sensorless nodes (0%)\r\n  SELECT d.node_id\r\n  FROM device_metrics d\r\n  JOIN node_details n ON d.node_id = n.node_id\r\n  WHERE \r\n    $__timeFilter(d.time)\r\n    AND n.role IN ('ROUTER', 'REPEATER', 'BASE', 'ROUTER_LATE')\r\n    AND d.battery_level IS NOT NULL\r\n  GROUP BY d.node_id\r\n  HAVING MIN(d.battery_level) < 100 \r\n     AND MAX(d.battery_level) > 0\r\n)\r\n-- Main Graph Query\r\nSELECT\r\n  d.time AS \"time\",\r\n  COALESCE(n.long_name, d.node_id) AS \"metric\",\r\n  d.battery_level AS \"battery\"\r\nFROM device_metrics d\r\nJOIN node_details n ON d.node_id = n.node_id\r\n-- This JOIN acts as our strict filter, blocking any node not on the approved list\r\nJOIN FilteredRouters fr ON d.node_id = fr.node_id\r\nWHERE\r\n  $__timeFilter(d.time)\r\nORDER BY\r\n  d.time ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Router Battery Watch",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 30,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH TargetRouters AS (\r\n  SELECT\r\n    REPLACE(node_id::text, '!', '') AS clean_id,\r\n    MAX(long_name) AS long_name,\r\n    MAX(role) AS role\r\n  FROM node_details\r\n  WHERE role IN ('ROUTER', 'ROUTER_LATE')\r\n  GROUP BY 1\r\n),\r\nActiveNodes AS (\r\n  SELECT\r\n    REPLACE(source_id::text, '!', '') AS node_id,\r\n    MAX(time) AS last_any_packet\r\n  FROM mesh_packet_metrics\r\n  WHERE time >= NOW() - INTERVAL '7 days'\r\n  GROUP BY 1\r\n),\r\nAbsoluteLastNeighborInfo AS (\r\n  SELECT\r\n    REPLACE(source_id::text, '!', '') AS node_id,\r\n    MAX(time) AS last_tx\r\n  FROM mesh_packet_metrics\r\n  WHERE portnum = 'NEIGHBORINFO_APP'\r\n  GROUP BY 1\r\n),\r\nDashboardIntervals AS (\r\n  SELECT\r\n    REPLACE(source_id::text, '!', '') AS node_id,\r\n    CASE \r\n      -- \ud83d\udeab THE MULTIPATH FIX: Count distinct minutes instead of raw rows!\r\n      WHEN COUNT(DISTINCT DATE_TRUNC('minute', time)) > 1 \r\n      THEN EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) / (COUNT(DISTINCT DATE_TRUNC('minute', time)) - 1)\r\n      ELSE NULL\r\n    END AS avg_interval_sec\r\n  FROM mesh_packet_metrics\r\n  WHERE portnum = 'NEIGHBORINFO_APP'\r\n    AND $__timeFilter(time)\r\n  GROUP BY 1\r\n)\r\n\r\nSELECT\r\n  COALESCE(tr.long_name, 'Unknown (!' || tr.clean_id || ')') AS \"Router Node\",\r\n  tr.role AS \"Role\",\r\n  \r\n  -- When the node was last seen alive\r\n  CASE\r\n    WHEN (NOW() - an.last_any_packet) < INTERVAL '1 minute' THEN 'Just now'\r\n    WHEN (NOW() - an.last_any_packet) < INTERVAL '1 hour' THEN EXTRACT(MINUTE FROM (NOW() - an.last_any_packet))::int || 'm ago'\r\n    WHEN (NOW() - an.last_any_packet) < INTERVAL '24 hours' THEN EXTRACT(HOUR FROM (NOW() - an.last_any_packet))::int || 'h ago'\r\n    ELSE EXTRACT(DAY FROM (NOW() - an.last_any_packet))::int || 'd ago'\r\n  END AS \"Last Heard (Alive)\",\r\n\r\n  -- When it last sent a NeighborInfo packet (Absolute Truth)\r\n  CASE\r\n    WHEN alni.last_tx IS NULL THEN '\ud83d\udd34 Never'\r\n    WHEN (NOW() - alni.last_tx) < INTERVAL '1 minute' THEN 'Just now'\r\n    WHEN (NOW() - alni.last_tx) < INTERVAL '1 hour' THEN EXTRACT(MINUTE FROM (NOW() - alni.last_tx))::int || 'm ago'\r\n    WHEN (NOW() - alni.last_tx) < INTERVAL '24 hours' THEN EXTRACT(HOUR FROM (NOW() - alni.last_tx))::int || 'h ago'\r\n    ELSE EXTRACT(DAY FROM (NOW() - alni.last_tx))::int || 'd ago'\r\n  END AS \"Last NeighborInfo\",\r\n\r\n  -- The Emoji-Labeled Interval Logic\r\n  CASE\r\n    WHEN di.avg_interval_sec IS NULL THEN '\u26aa Not Enough Data'\r\n    ELSE \r\n      CASE \r\n        WHEN di.avg_interval_sec < 36000 THEN '\ud83d\udfe1 '         -- Under 10 hours\r\n        WHEN di.avg_interval_sec <= 43200 THEN '\ud83d\udfe2 '        -- 10 to 12 hours\r\n        ELSE '\ud83d\udd34 '                                          -- Over 12 hours\r\n      END\r\n      ||\r\n      CASE\r\n        WHEN di.avg_interval_sec < 3600 THEN ROUND((di.avg_interval_sec / 60)::numeric, 1) || ' mins'\r\n        ELSE ROUND((di.avg_interval_sec / 3600)::numeric, 1) || ' hours'\r\n      END\r\n  END AS \"Detected Interval\"\r\n\r\nFROM TargetRouters tr\r\nINNER JOIN ActiveNodes an ON tr.clean_id = an.node_id\r\nLEFT JOIN AbsoluteLastNeighborInfo alni ON tr.clean_id = alni.node_id\r\nLEFT JOIN DashboardIntervals di ON tr.clean_id = di.node_id\r\n\r\nORDER BY \r\n  alni.last_tx ASC NULLS FIRST, \r\n  an.last_any_packet DESC NULLS LAST;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Neighbor Info Stats",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Mixed --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node ID"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"Node ID\"]}"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 97
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last Position Time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "custom.width",
+                "value": 284
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last Heard (Any Packet)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "custom.width",
+                "value": 188
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node Name"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 203
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Role"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 125
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 29
+      },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Last Position Time"
+          }
+        ]
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH RecentActivity AS (\r\n  -- Find nodes that have spoken AT ALL in the last 48 hours\r\n  SELECT source_id, MAX(time) AS last_heard\r\n  FROM mesh_packet_metrics\r\n  WHERE time >= NOW() - INTERVAL '48 hours'\r\n  GROUP BY source_id\r\n),\r\nPositionHistory AS (\r\n  -- Find the absolute latest position packet for everyone\r\n  SELECT source_id, MAX(time) AS last_position\r\n  FROM mesh_packet_metrics\r\n  WHERE portnum = 'POSITION_APP'\r\n  GROUP BY source_id\r\n)\r\nSELECT\r\n  n.node_id AS \"Node ID\",\r\n  n.long_name AS \"Node Name\",\r\n  n.role AS \"Role\",\r\n  p.last_position AS \"Last Position Time\",\r\n  a.last_heard AS \"Last Heard (Any Packet)\"\r\nFROM node_details n\r\n-- INNER JOIN forces the query to ONLY include nodes found in the RecentActivity list\r\nJOIN RecentActivity a \r\n  ON n.node_id = a.source_id\r\nLEFT JOIN PositionHistory p \r\n  ON n.node_id = p.source_id\r\nWHERE \r\n  n.role IN ('ROUTER', 'ROUTER_LATE')\r\n  -- Filter for nodes with stale or missing position data\r\n  AND (p.last_position < NOW() - INTERVAL '7 days' OR p.last_position IS NULL)\r\nORDER BY \r\n  \"Last Position Time\" DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Routers heard in the last 48 hours without location within 7 days",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node ID"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"Node ID\"]}"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 97
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg SNR (Yesterday)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 154
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg SNR (Today)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 127
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Net Change"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 92
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node Name"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 158
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 41
+      },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH Yesterday AS (\r\n  SELECT source_id, AVG(rx_snr) as avg_snr_yesterday\r\n  FROM mesh_packet_metrics\r\n  WHERE time >= NOW() - INTERVAL '48 hours' AND time < NOW() - INTERVAL '24 hours'\r\n  GROUP BY source_id\r\n),\r\nToday AS (\r\n  SELECT source_id, AVG(rx_snr) as avg_snr_today\r\n  FROM mesh_packet_metrics\r\n  WHERE time >= NOW() - INTERVAL '24 hours'\r\n  GROUP BY source_id\r\n)\r\nSELECT\r\n  n.node_id AS \"Node ID\",\r\n  n.long_name AS \"Node Name\",\r\n  ROUND(y.avg_snr_yesterday::numeric, 2) AS \"Avg SNR (Yesterday)\",\r\n  ROUND(t.avg_snr_today::numeric, 2) AS \"Avg SNR (Today)\",\r\n  ROUND((t.avg_snr_today - y.avg_snr_yesterday)::numeric, 2) AS \"Net Change\"\r\nFROM node_details n\r\nJOIN Yesterday y ON n.node_id = y.source_id\r\nJOIN Today t ON n.node_id = t.source_id\r\nWHERE \r\n  n.role IN ('ROUTER', 'ROUTER_LATE')\r\n  -- Only show nodes where the signal got worse by 2.0 or more\r\n  AND (t.avg_snr_today - y.avg_snr_yesterday) <= -2.0\r\nORDER BY \"Net Change\" ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Significant SNR change over 24 hours",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false,
+            "minWidth": 50,
+            "wrapText": true
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Min Hops to DB"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Router ID"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 119
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Router Name"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 309
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Min Hops to MQTT"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 22,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \r\n  REPLACE(m.source_id::text, '!', '') AS \"Router ID\",\r\n  COALESCE(MAX(n.long_name), REPLACE(m.source_id::text, '!', '')) AS \"Router Name\",\r\n  COUNT(m.packet_id) AS \"Total Leaked Packets\",\r\n  -- \ud83d\udccd Lists every gateway that uploaded this router's private packets\r\n  STRING_AGG(DISTINCT COALESCE(gn.long_name, REPLACE(m.reporting_gateway::text, '!', '')), ', ') AS \"Complicit Gateways\"\r\nFROM mesh_packet_metrics m\r\n-- Join to get the hardware role of the sender\r\nLEFT JOIN node_details n ON REPLACE(m.source_id::text, '!', '') = REPLACE(n.node_id::text, '!', '')\r\n-- Join to get the friendly name of the gateway that uploaded it\r\nLEFT JOIN node_details gn ON REPLACE(m.reporting_gateway::text, '!', '') = REPLACE(gn.node_id::text, '!', '')\r\nWHERE $__timeFilter(m.time)\r\n  AND n.role IN ('ROUTER', 'ROUTER_LATE')\r\n  \r\n  -- \ud83d\udccd The Smoking Gun: The packet explicitly requested to stay strictly on RF...\r\n  AND m.ok_to_mqtt = FALSE \r\n  \r\n  -- \ud83d\udccd ...but a gateway bridged it to the internet anyway!\r\n  AND m.reporting_gateway IS NOT NULL\r\nGROUP BY 1\r\nORDER BY 3 DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Routers that might have \"Ok to MQTT\" disabled",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "definition": "SELECT DISTINCT TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) FROM node_details WHERE last_heard_topic IS NOT NULL;",
+        "includeAll": true,
+        "multi": true,
+        "name": "Region",
+        "options": [],
+        "query": "SELECT DISTINCT TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) FROM node_details WHERE last_heard_topic IS NOT NULL;",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "definition": "SELECT DISTINCT substring(last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$') AS channel\nFROM node_details\nWHERE last_heard_topic IS NOT NULL\n  AND substring(last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$') IS NOT NULL\nORDER BY channel;",
+        "includeAll": true,
+        "multi": true,
+        "name": "Channel",
+        "options": [],
+        "query": "SELECT DISTINCT substring(last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$') AS channel\nFROM node_details\nWHERE last_heard_topic IS NOT NULL\n  AND substring(last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$') IS NOT NULL\nORDER BY channel;",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Router Deep Dive",
+  "uid": "tagjwjs",
+  "weekStart": ""
+}

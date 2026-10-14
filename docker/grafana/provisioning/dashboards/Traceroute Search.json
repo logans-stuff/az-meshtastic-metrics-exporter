@@ -1,0 +1,716 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "links": [],
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Traceroute ID"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Select TR",
+                    "url": "/d/${__dashboard.uid}/${__dashboard.url}?var-traceroute_id=${__data.fields[\"Traceroute ID\"]}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH TargetNode AS (\n\n  -- Prepare the ID as both text and a number\n\n  SELECT \n\n    REPLACE(${node_id:singlequote}, '!', '') AS id_txt,\n\n    REPLACE(${node_id:singlequote}, '!', '')::bigint AS id_num\n\n),\n\nUniqueNodes AS (\n\n  -- Dictionary of node names\n\n  SELECT \n\n    REPLACE(node_id::text, '!', '') AS clean_id, \n\n    MAX(long_name) AS long_name\n\n  FROM node_details\n\n  GROUP BY 1\n\n),\n\nAllPackets AS (\n\n  -- 1. Grab all TR packets and determine the selected node's exact role in each one\n\n  SELECT\n\n    m.time,\n\n    m.packet_id,\n\n    m.request_id,\n\n    REPLACE(m.source_id::text, '!', '') AS init_id,\n\n    REPLACE(m.destination_id::text, '!', '') AS target_id,\n\n    \n\n    CASE\n\n      WHEN REPLACE(m.source_id::text, '!', '') = t.id_txt THEN 'Initiator'\n\n      WHEN REPLACE(m.destination_id::text, '!', '') = t.id_txt THEN 'Target'\n\n      WHEN t.id_num = ANY(m.route_towards) THEN 'Hop ' || array_position(m.route_towards, t.id_num)\n\n      WHEN REPLACE(m.reporting_gateway::text, '!', '') = t.id_txt THEN 'Gateway'\n\n      ELSE NULL\n\n    END AS role,\n\n    \n\n    array_length(m.route_towards, 1) AS hop_count,\n\n\n\n    -- Deduplicate aggressively so we only have the best version of each packet\n\n    ROW_NUMBER() OVER (\n\n      PARTITION BY m.packet_id \n\n      ORDER BY array_length(m.route_towards, 1) DESC NULLS LAST, m.time ASC\n\n    ) as rn\n\n  FROM mesh_packet_metrics m\n\n  CROSS JOIN TargetNode t\n\n  WHERE m.portnum = 'TRACEROUTE_APP'\n\n    AND $__timeFilter(m.time)\n\n),\n\nBestPackets AS (\n\n  -- Filter down to just the deduplicated #1 rows\n\n  SELECT * FROM AllPackets WHERE rn = 1\n\n),\n\nRequests AS (\n\n  SELECT * FROM BestPackets WHERE request_id IS NULL\n\n),\n\nReplies AS (\n\n  SELECT * FROM BestPackets WHERE request_id IS NOT NULL\n\n),\n\nPairedTRs AS (\n\n  -- 2. Zip the requests and replies together\n\n  SELECT\n\n    -- Use the request time, but fallback to reply time if the request packet was lost\n\n    COALESCE(req.time, rep.time) AS pair_time,\n\n    \n\n    -- The Master ID that Grafana will use when you click a row\n\n    COALESCE(req.packet_id, rep.request_id) AS request_packet_id,\n\n    \n\n    -- Align the display IDs (the Target of the reply is the Initiator of the request)\n\n    COALESCE(req.init_id, rep.target_id) AS display_init, \n\n    COALESCE(req.target_id, rep.init_id) AS display_target,\n\n    \n\n    req.role AS req_role,\n\n    rep.role AS rep_role,\n\n    \n\n    req.hop_count AS req_hops,\n\n    rep.hop_count AS rep_hops\n\n  FROM Requests req\n\n  FULL OUTER JOIN Replies rep ON req.packet_id = rep.request_id\n\n)\n\n\n\n-- 3. Final Polish and Presentation\n\nSELECT \n\n  p.pair_time AS \"Time\",\n\n  p.request_packet_id AS \"Traceroute ID\",\n\n  COALESCE(n_init.long_name, p.display_init) AS \"Initiator\",\n\n  COALESCE(n_target.long_name, p.display_target) AS \"Target\",\n\n  \n\n  -- Combine the roles visually into a single column\n\n  CASE \n\n    WHEN p.req_role IS NOT NULL AND p.rep_role IS NOT NULL THEN '\ud83d\udd04 Both (' || p.req_role || ' / ' || p.rep_role || ')'\n\n    WHEN p.req_role IS NOT NULL THEN '\u27a1\ufe0f Outbound (' || p.req_role || ')'\n\n    WHEN p.rep_role IS NOT NULL THEN '\u2b05\ufe0f Reply (' || p.rep_role || ')'\n\n    ELSE 'Unknown'\n\n  END AS \"Node Contribution\",\n\n\n\n  p.req_hops AS \"Outbound Hops\",\n\n  p.rep_hops AS \"Reply Hops\"\n\n\n\nFROM PairedTRs p\n\nLEFT JOIN UniqueNodes n_init ON p.display_init = n_init.clean_id\n\nLEFT JOIN UniqueNodes n_target ON p.display_target = n_target.clean_id\n\n-- Crucial: Completely hide pairs where the selected node had absolutely no involvement\n\nWHERE p.req_role IS NOT NULL OR p.rep_role IS NOT NULL\n\nORDER BY p.pair_time DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "New panel",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "gridPos": {
+        "h": 17,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "id": 2,
+      "options": {
+        "edges": {
+          "mainStatUnit": "dB"
+        },
+        "layoutAlgorithm": "force",
+        "nodes": {
+          "arcs": []
+        },
+        "zoomMode": "cooperative"
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH OriginalRequest AS (\n\n  SELECT REPLACE(source_id::text, '!', '') AS initiator, REPLACE(destination_id::text, '!', '') AS target\n\n  FROM mesh_packet_metrics WHERE packet_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND portnum = 'TRACEROUTE_APP' LIMIT 1\n\n),\n\nReplyReceipt AS (\n\n  -- \ud83d\udccd Grab the verified Answer Key\n\n  SELECT m.route_towards\n\n  FROM mesh_packet_metrics m CROSS JOIN OriginalRequest o\n\n  WHERE m.request_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND m.portnum = 'TRACEROUTE_APP'\n\n    AND REPLACE(m.source_id::text, '!', '') = o.target\n\n  ORDER BY m.time ASC LIMIT 1\n\n),\n\nAllTRPackets AS (\n\n  SELECT m.route_towards\n\n  FROM mesh_packet_metrics m CROSS JOIN OriginalRequest o\n\n  WHERE m.packet_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND m.portnum = 'TRACEROUTE_APP'\n\n    AND REPLACE(m.destination_id::text, '!', '') = o.target \n\n),\n\nGateways AS (\n\n  SELECT DISTINCT REPLACE(m.reporting_gateway::text, '!', '') AS gw_id\n\n  FROM mesh_packet_metrics m CROSS JOIN OriginalRequest o\n\n  WHERE m.packet_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND m.portnum = 'TRACEROUTE_APP'\n\n    AND REPLACE(m.destination_id::text, '!', '') = o.target \n\n    AND m.reporting_gateway IS NOT NULL\n\n),\n\nTRNodes AS (\n\n  SELECT initiator AS node_id, 'Initiator' AS tr_role FROM OriginalRequest\n\n  UNION\n\n  SELECT target AS node_id, 'Target' AS tr_role FROM OriginalRequest\n\n  UNION\n\n  SELECT CASE WHEN t.route_node::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(t.route_node::text, '!', '') END AS node_id, 'Hop' AS tr_role FROM AllTRPackets CROSS JOIN LATERAL unnest(route_towards) AS t(route_node)\n\n  UNION\n\n  -- \ud83d\udccd THE FIX: Inject any stealth nodes revealed by the Target's receipt!\n\n  SELECT CASE WHEN t.route_node::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(t.route_node::text, '!', '') END AS node_id, 'Hop' AS tr_role FROM ReplyReceipt CROSS JOIN LATERAL unnest(route_towards) AS t(route_node)\n\n),\n\nRankedRoles AS (\n\n  SELECT node_id, tr_role, ROW_NUMBER() OVER(PARTITION BY node_id ORDER BY CASE WHEN tr_role = 'Initiator' THEN 1 WHEN tr_role = 'Target' THEN 2 ELSE 3 END) as rn\n\n  FROM TRNodes\n\n)\n\n\n\nSELECT \n\n  r.node_id AS id, \n\n  COALESCE(MAX(n.long_name), CASE WHEN r.node_id = 'unknown_hop' THEN 'Unknown Hop' ELSE r.node_id END) AS title, \n\n  CASE WHEN MAX(g.gw_id) IS NOT NULL THEN MAX(r.tr_role) || ' (MQTT Gateway)' ELSE MAX(r.tr_role) END AS subtitle, \n\n  COALESCE(MAX(n.short_name), right(r.node_id, 4)) AS mainstat, \n\n  COALESCE(MAX(n.role), 'Unknown') AS secondarystat, \n\n  CASE MAX(r.tr_role) WHEN 'Initiator' THEN 'green' WHEN 'Target' THEN 'red' ELSE 'blue' END AS color,\n\n  CASE WHEN MAX(g.gw_id) IS NOT NULL THEN true ELSE false END AS highlighted,\n\n  CASE WHEN MAX(g.gw_id) IS NOT NULL THEN '\u2705 Yes' ELSE '\u274c No' END AS \"detail__Is MQTT Gateway\"\n\n\n\nFROM RankedRoles r \n\nLEFT JOIN node_details n ON r.node_id = REPLACE(n.node_id::text, '!', '')\n\nLEFT JOIN Gateways g ON r.node_id = g.gw_id\n\nWHERE r.rn = 1 AND LOWER(r.node_id) NOT IN ('^all', 'all')\n\nGROUP BY r.node_id;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "meshtastic",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "hide": false,
+          "rawQuery": true,
+          "rawSql": "WITH OriginalRequest AS (\n\n  SELECT REPLACE(source_id::text, '!', '') AS initiator, REPLACE(destination_id::text, '!', '') AS target\n\n  FROM mesh_packet_metrics WHERE packet_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND portnum = 'TRACEROUTE_APP' LIMIT 1\n\n),\n\nReplyReceipt AS (\n\n  SELECT m.route_towards, m.snr_towards, COALESCE(array_length(m.route_towards, 1), 0) AS hop_count\n\n  FROM mesh_packet_metrics m CROSS JOIN OriginalRequest o\n\n  WHERE m.request_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND m.portnum = 'TRACEROUTE_APP'\n\n    AND REPLACE(m.source_id::text, '!', '') = o.target\n\n  ORDER BY m.time ASC LIMIT 1\n\n),\n\nAllOutboundPackets AS (\n\n  SELECT ROW_NUMBER() OVER () AS report_id, REPLACE(m.source_id::text, '!', '') AS initiator, REPLACE(m.destination_id::text, '!', '') AS target, m.route_towards, m.snr_towards, COALESCE(array_length(m.route_towards, 1), 0) AS hop_count, m.rx_snr AS header_snr\n\n  FROM mesh_packet_metrics m CROSS JOIN OriginalRequest o\n\n  WHERE m.packet_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND m.portnum = 'TRACEROUTE_APP'\n\n    AND REPLACE(m.destination_id::text, '!', '') = o.target\n\n),\n\nLongestFallback AS (\n\n  SELECT route_towards, snr_towards, hop_count, header_snr FROM AllOutboundPackets ORDER BY hop_count DESC, report_id ASC LIMIT 1\n\n),\n\nBestPath AS (\n\n  SELECT o.initiator, o.target, COALESCE(r.route_towards, f.route_towards) AS route_towards, COALESCE(r.snr_towards, f.snr_towards) AS snr_towards, COALESCE(r.hop_count, f.hop_count, 0) AS hop_count, CASE WHEN r.route_towards IS NOT NULL THEN true ELSE false END AS reached_target\n\n  FROM OriginalRequest o LEFT JOIN LongestFallback f ON true LEFT JOIN ReplyReceipt r ON true\n\n),\n\nUnnestedHops AS (\n\n  SELECT report_id, initiator, target, hop_count, header_snr, CASE WHEN t.route_node::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(t.route_node::text, '!', '') END AS hop_node, t.snr_val AS snr, t.hop_index\n  FROM AllOutboundPackets CROSS JOIN LATERAL unnest(route_towards, snr_towards) WITH ORDINALITY AS t(route_node, snr_val, hop_index)\n\n),\n\nGhostEdges AS (\n\n  -- \ud83d\udccd The Telemetry Ghosts\n\n  SELECT u.initiator AS source, u.target AS target, (AVG(NULLIF(COALESCE(u.snr_towards[1], u.header_snr), -128)) / 4.0)::numeric AS mainStat, 'Direct' AS secondaryStat FROM AllOutboundPackets u CROSS JOIN BestPath b WHERE u.hop_count = 0 AND b.hop_count = 0 AND b.reached_target = true GROUP BY 1, 2\n\n  UNION ALL\n\n  SELECT initiator AS source, hop_node AS target, (AVG(NULLIF(snr, -128)) / 4.0)::numeric AS mainStat, 'Hop 1' AS secondaryStat FROM UnnestedHops WHERE hop_index = 1 GROUP BY 1, 2\n\n  UNION ALL\n\n  SELECT h1.hop_node AS source, h2.hop_node AS target, (AVG(NULLIF(h2.snr, -128)) / 4.0)::numeric AS mainStat, 'Hop ' || MAX(h2.hop_index) AS secondaryStat FROM UnnestedHops h1 JOIN UnnestedHops h2 ON h1.report_id = h2.report_id AND h1.hop_index + 1 = h2.hop_index GROUP BY 1, 2\n\n  UNION ALL\n\n  SELECT u.hop_node AS source, u.target AS target, (MAX(COALESCE(b.snr_towards[b.hop_count + 1], u.header_snr)) / 4.0)::numeric AS mainStat, 'Final Hop' AS secondaryStat FROM UnnestedHops u CROSS JOIN BestPath b WHERE u.hop_index = u.hop_count AND u.hop_count = b.hop_count AND b.reached_target = true GROUP BY 1, 2\n\n),\n\nTruthEdges AS (\n\n  -- \ud83d\udccd THE FIX: Unroll the verified array directly into the Edge Pool!\n\n  SELECT initiator AS source, target AS target, NULL::numeric AS mainStat, 'Direct' AS secondaryStat FROM BestPath WHERE hop_count = 0 AND reached_target = true\n\n  UNION ALL\n\n  SELECT initiator AS source, CASE WHEN route_towards[1]::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(route_towards[1]::text, '!', '') END AS target, (NULLIF(snr_towards[1], -128) / 4.0)::numeric AS mainStat, 'Hop 1' AS secondaryStat FROM BestPath WHERE hop_count > 0\n\n  UNION ALL\n\n  SELECT CASE WHEN route_towards[i]::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(route_towards[i]::text, '!', '') END AS source, CASE WHEN route_towards[i+1]::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(route_towards[i+1]::text, '!', '') END AS target, (NULLIF(snr_towards[i+1], -128) / 4.0)::numeric AS mainStat, 'Hop ' || (i+1) AS secondaryStat FROM BestPath CROSS JOIN LATERAL generate_series(1, hop_count - 1) AS i WHERE hop_count > 1\n\n  UNION ALL\n\n  SELECT CASE WHEN route_towards[hop_count]::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(route_towards[hop_count]::text, '!', '') END AS source, target AS target, NULL::numeric AS mainStat, 'Final Hop' AS secondaryStat FROM BestPath WHERE hop_count > 0 AND reached_target = true\n\n),\n\nCombinedEdges AS (\n\n  SELECT source, target, mainStat, secondaryStat FROM TruthEdges\n\n  UNION ALL\n\n  SELECT source, target, mainStat, secondaryStat FROM GhostEdges\n\n),\n\nUniqueEdges AS (\n\n  -- Merge them cleanly. MAX(mainStat) dynamically prioritizes numerical SNRs from telemetry over NULLs from the Truth array\n\n  SELECT source, target, MAX(mainStat) AS mainStat, MAX(secondaryStat) AS secondaryStat\n\n  FROM CombinedEdges\n\n  GROUP BY source, target\n\n),\n\nFinalEdges AS (\n\n  -- The verified Answer Key used strictly for painting the line green\n\n  SELECT source, target FROM TruthEdges\n\n)\n\n\n\nSELECT \n\n  u.source || '_' || u.target AS id, u.source, u.target, ROUND(u.mainStat::numeric, 1) AS mainStat, u.secondaryStat,\n\n  CASE WHEN f.source IS NOT NULL AND (SELECT reached_target FROM BestPath) = true THEN '\u2705 Final Route' ELSE '\u274c Dead End' END AS \"detail__Path\",\n\n  CASE WHEN f.source IS NOT NULL AND (SELECT reached_target FROM BestPath) = true THEN 'green' ELSE 'gray' END AS color,\n\n  COALESCE(GREATEST(1.0, ROUND(((u.mainStat::numeric + 20.0) / 5.0) + 1.0, 1)), 2.0) AS thickness\n\nFROM UniqueEdges u LEFT JOIN FinalEdges f ON u.source = f.source AND u.target = f.target\n\nWHERE LOWER(u.source) NOT IN ('^all', 'all') AND LOWER(u.target) NOT IN ('^all', 'all');",
+          "refId": "B",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Outbound TR",
+      "type": "nodeGraph"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "gridPos": {
+        "h": 17,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "id": 3,
+      "options": {
+        "edges": {
+          "secondaryStatUnit": "dB"
+        },
+        "layoutAlgorithm": "force",
+        "nodes": {
+          "secondaryStatUnit": "dB"
+        },
+        "zoomMode": "cooperative"
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH OriginalRequest AS (\n\n  SELECT REPLACE(source_id::text, '!', '') AS initiator, REPLACE(destination_id::text, '!', '') AS target\n\n  FROM mesh_packet_metrics WHERE packet_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND portnum = 'TRACEROUTE_APP' LIMIT 1\n\n),\n\nAllReplyPackets AS (\n\n  SELECT CASE WHEN REPLACE(m.destination_id::text, '!', '') IN ('ffffffff', '^all') THEN o.initiator ELSE REPLACE(m.destination_id::text, '!', '') END AS reply_dest, m.route_back\n\n  FROM mesh_packet_metrics m CROSS JOIN OriginalRequest o\n\n  WHERE m.request_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND m.portnum = 'TRACEROUTE_APP'\n\n    AND REPLACE(m.source_id::text, '!', '') = o.target \n\n),\n\nGateways AS (\n\n  SELECT DISTINCT REPLACE(m.reporting_gateway::text, '!', '') AS gw_id\n\n  FROM mesh_packet_metrics m CROSS JOIN OriginalRequest o\n\n  WHERE m.request_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND m.portnum = 'TRACEROUTE_APP'\n\n    AND REPLACE(m.source_id::text, '!', '') = o.target \n\n    AND m.reporting_gateway IS NOT NULL\n\n),\n\nTRNodes AS (\n\n  SELECT target AS node_id, 'Reply Sender' AS tr_role FROM OriginalRequest\n\n  UNION\n\n  SELECT reply_dest AS node_id, 'Reply Target' AS tr_role FROM AllReplyPackets\n\n  UNION\n\n  SELECT CASE WHEN t.route_node::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(t.route_node::text, '!', '') END AS node_id, 'Hop' AS tr_role FROM AllReplyPackets CROSS JOIN LATERAL unnest(route_back) AS t(route_node)\n\n),\n\nRankedRoles AS (\n\n  SELECT node_id, tr_role, ROW_NUMBER() OVER(PARTITION BY node_id ORDER BY CASE WHEN tr_role = 'Reply Sender' THEN 1 WHEN tr_role = 'Reply Target' THEN 2 ELSE 3 END) as rn\n\n  FROM TRNodes\n\n)\n\n\n\nSELECT \n\n  r.node_id AS id, \n\n  COALESCE(MAX(n.long_name), CASE WHEN r.node_id = 'unknown_hop' THEN 'Unknown Hop' ELSE r.node_id END) AS title, \n\n  CASE WHEN MAX(g.gw_id) IS NOT NULL THEN MAX(r.tr_role) || ' (MQTT Gateway)' ELSE MAX(r.tr_role) END AS subTitle, \n\n  COALESCE(MAX(n.short_name), right(r.node_id, 4)) AS mainStat, \n\n  COALESCE(MAX(n.role), 'Unknown') AS secondaryStat, \n\n  \n\n  -- \ud83d\udccd Simple Colors restored\n\n  CASE MAX(r.tr_role) WHEN 'Reply Sender' THEN 'green' WHEN 'Reply Target' THEN 'red' ELSE 'blue' END AS color,\n\n  \n\n  -- \ud83d\udccd Native Highlight\n\n  CASE WHEN MAX(g.gw_id) IS NOT NULL THEN true ELSE false END AS highlighted,\n\n  CASE WHEN MAX(g.gw_id) IS NOT NULL THEN '\u2705 Yes' ELSE '\u274c No' END AS \"detail__Is MQTT Gateway\"\n\n\n\nFROM RankedRoles r \n\nLEFT JOIN node_details n ON r.node_id = REPLACE(n.node_id::text, '!', '')\n\nLEFT JOIN Gateways g ON r.node_id = g.gw_id\n\nWHERE r.rn = 1 AND LOWER(r.node_id) NOT IN ('^all', 'all')\n\nGROUP BY r.node_id;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "meshtastic",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "hide": false,
+          "rawQuery": true,
+          "rawSql": "WITH OriginalRequest AS (\n\n  SELECT REPLACE(source_id::text, '!', '') AS initiator, REPLACE(destination_id::text, '!', '') AS target\n\n  FROM mesh_packet_metrics WHERE packet_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND portnum = 'TRACEROUTE_APP' LIMIT 1\n\n),\n\nAllReplyPackets AS (\n\n  SELECT \n\n    ROW_NUMBER() OVER () AS report_id, \n\n    REPLACE(m.source_id::text, '!', '') AS reply_sender, \n\n    CASE WHEN REPLACE(m.destination_id::text, '!', '') IN ('ffffffff', '^all') THEN o.initiator ELSE REPLACE(m.destination_id::text, '!', '') END AS reply_dest, \n\n    m.route_back, \n\n    m.snr_back, \n\n    COALESCE(array_length(m.route_back, 1), 0) AS hop_count,\n\n    m.rx_snr AS header_snr,\n\n    m.time\n\n  FROM mesh_packet_metrics m CROSS JOIN OriginalRequest o\n\n  WHERE m.request_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND m.portnum = 'TRACEROUTE_APP'\n\n    AND REPLACE(m.source_id::text, '!', '') = o.target \n\n),\n\nBestReplyPacket AS (\n\n  SELECT reply_sender, reply_dest, route_back, snr_back, hop_count, header_snr\n\n  FROM AllReplyPackets ORDER BY time ASC LIMIT 1\n\n),\n\nUnnestedHops AS (\n\n  SELECT report_id, reply_sender, reply_dest, hop_count, header_snr, CASE WHEN t.route_node::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(t.route_node::text, '!', '') END AS hop_node, t.snr_val AS snr, t.hop_index\n  FROM AllReplyPackets CROSS JOIN LATERAL unnest(route_back, snr_back) WITH ORDINALITY AS t(route_node, snr_val, hop_index)\n\n),\n\nUniqueEdges AS (\n\n  SELECT reply_sender AS source, reply_dest AS target, (AVG(NULLIF(header_snr, -128)) / 4.0)::numeric AS mainStat, '\u2b05\ufe0f Direct' AS secondaryStat\n\n  FROM AllReplyPackets WHERE hop_count = 0 GROUP BY 1, 2\n\n  \n\n  UNION ALL\n\n\n\n  SELECT reply_sender AS source, hop_node AS target, (AVG(NULLIF(snr, -128)) / 4.0)::numeric AS mainStat, '\u2b05\ufe0f Hop 1' AS secondaryStat\n\n  FROM UnnestedHops WHERE hop_index = 1 GROUP BY 1, 2\n\n  \n\n  UNION ALL\n\n\n\n  SELECT h1.hop_node AS source, h2.hop_node AS target, (AVG(NULLIF(h2.snr, -128)) / 4.0)::numeric AS mainStat, '\u2b05\ufe0f Hop ' || MAX(h2.hop_index) AS secondaryStat\n\n  FROM UnnestedHops h1 JOIN UnnestedHops h2 ON h1.report_id = h2.report_id AND h1.hop_index + 1 = h2.hop_index GROUP BY 1, 2\n\n  \n\n  UNION ALL\n\n\n\n  SELECT hop_node AS source, reply_dest AS target, (AVG(NULLIF(header_snr, -128)) / 4.0)::numeric AS mainStat, '\u2b05\ufe0f Final Hop' AS secondaryStat\n\n  FROM UnnestedHops WHERE hop_index = hop_count AND hop_count > 0 GROUP BY 1, 2\n\n),\n\nFinalEdges AS (\n\n  SELECT reply_sender AS source, reply_dest AS target FROM BestReplyPacket WHERE hop_count = 0\n\n  UNION ALL\n\n  SELECT reply_sender AS source, CASE WHEN route_back[1]::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(route_back[1]::text, '!', '') END AS target FROM BestReplyPacket WHERE hop_count > 0\n\n  UNION ALL\n\n  SELECT CASE WHEN route_back[i]::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(route_back[i]::text, '!', '') END AS source, CASE WHEN route_back[i+1]::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(route_back[i+1]::text, '!', '') END AS target FROM BestReplyPacket CROSS JOIN LATERAL generate_series(1, hop_count - 1) AS i WHERE hop_count > 1\n\n  UNION ALL\n\n  SELECT CASE WHEN route_back[hop_count]::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(route_back[hop_count]::text, '!', '') END AS source, reply_dest AS target FROM BestReplyPacket WHERE hop_count > 0\n\n)\n\n\n\n-- \ud83d\udccd FIX: Raw, chronological order restored!\n\nSELECT\n\n  u.source || '_' || u.target AS id, \n\n  u.source AS source,  \n\n  u.target AS target,  \n\n  ROUND(u.mainStat::numeric, 1) AS mainStat, \n\n  u.secondaryStat,\n\n  CASE WHEN f.source IS NOT NULL THEN '\u2705 Final Route' ELSE '\u274c Dead End' END AS \"detail__Path\",\n\n  CASE WHEN f.source IS NOT NULL THEN 'green' ELSE 'gray' END AS color,\n\n  COALESCE(GREATEST(1.0, ROUND(((u.mainStat::numeric + 20.0) / 5.0) + 1.0, 1)), 2.0) AS thickness\n\nFROM UniqueEdges u LEFT JOIN FinalEdges f ON u.source = f.source AND u.target = f.target\n\nWHERE u.source NOT IN ('ffffffff', '^all') AND u.target NOT IN ('ffffffff', '^all');",
+          "refId": "B",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Inbound Reply (if available)",
+      "type": "nodeGraph"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-BlPu"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "fieldMinMax": false,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "dark-red",
+                "value": 0
+              },
+              {
+                "color": "dark-red",
+                "value": 0
+              },
+              {
+                "color": "#6ED0E0",
+                "value": 9
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Hop SNR (dB)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-GrYlRd"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 21,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "id": 4,
+      "options": {
+        "basemap": {
+          "config": {},
+          "name": "Layer 0",
+          "noRepeat": false,
+          "type": "default"
+        },
+        "controls": {
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showDebug": false,
+          "showMeasure": true,
+          "showScale": true,
+          "showZoom": true
+        },
+        "layers": [
+          {
+            "config": {
+              "arrow": 1,
+              "style": {
+                "color": {
+                  "fixed": "green"
+                },
+                "lineWidth": 2,
+                "opacity": 1,
+                "rotation": {
+                  "fixed": 0,
+                  "max": 360,
+                  "min": -360,
+                  "mode": "mod"
+                },
+                "size": {
+                  "fixed": 4,
+                  "max": 15,
+                  "min": 2
+                },
+                "symbol": {
+                  "field": "",
+                  "fixed": "",
+                  "mode": "fixed"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                },
+                "text": {
+                  "field": "Node ID",
+                  "fixed": "",
+                  "mode": "field"
+                },
+                "textConfig": {
+                  "fontSize": 12,
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "textAlign": "center",
+                  "textBaseline": "bottom"
+                }
+              }
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "A"
+            },
+            "location": {
+              "latitude": "latitude",
+              "longitude": "longitude",
+              "mode": "coords"
+            },
+            "name": "Outbound-Route",
+            "opacity": 0.6,
+            "tooltip": true,
+            "type": "route"
+          },
+          {
+            "config": {
+              "showLegend": false,
+              "style": {
+                "color": {
+                  "field": "Hop SNR (dB)",
+                  "fixed": "dark-green"
+                },
+                "opacity": 1,
+                "rotation": {
+                  "fixed": 0,
+                  "max": 360,
+                  "min": -360,
+                  "mode": "mod"
+                },
+                "size": {
+                  "fixed": 2,
+                  "max": 15,
+                  "min": 2
+                },
+                "symbol": {
+                  "fixed": "img/icons/marker/circle.svg",
+                  "mode": "fixed"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                },
+                "text": {
+                  "field": "Name",
+                  "fixed": "",
+                  "mode": "field"
+                },
+                "textConfig": {
+                  "fontSize": 12,
+                  "offsetY": 10,
+                  "textAlign": "center",
+                  "textBaseline": "middle"
+                }
+              }
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "A"
+            },
+            "location": {
+              "latitude": "latitude",
+              "longitude": "longitude",
+              "mode": "coords"
+            },
+            "name": "Outbound-Node",
+            "tooltip": true,
+            "type": "markers"
+          },
+          {
+            "config": {
+              "arrow": 1,
+              "style": {
+                "color": {
+                  "fixed": "semi-dark-purple"
+                },
+                "lineWidth": 2,
+                "opacity": 1,
+                "rotation": {
+                  "fixed": 0,
+                  "max": 360,
+                  "min": -360,
+                  "mode": "mod"
+                },
+                "size": {
+                  "fixed": 4,
+                  "max": 15,
+                  "min": 2
+                },
+                "symbol": {
+                  "fixed": "img/icons/marker/circle.svg",
+                  "mode": "fixed"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                },
+                "textConfig": {
+                  "fontSize": 12,
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "textAlign": "center",
+                  "textBaseline": "middle"
+                }
+              }
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "B"
+            },
+            "layer-tooltip": true,
+            "location": {
+              "mode": "auto"
+            },
+            "name": "Inbound-Route",
+            "opacity": 0.6,
+            "tooltip": true,
+            "type": "route"
+          },
+          {
+            "config": {
+              "showLegend": false,
+              "style": {
+                "color": {
+                  "field": "Hop SNR (dB)",
+                  "fixed": "dark-green"
+                },
+                "opacity": 1,
+                "rotation": {
+                  "fixed": 0,
+                  "max": 360,
+                  "min": -360,
+                  "mode": "mod"
+                },
+                "size": {
+                  "fixed": 2,
+                  "max": 15,
+                  "min": 2
+                },
+                "symbol": {
+                  "fixed": "img/icons/marker/circle.svg",
+                  "mode": "fixed"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                },
+                "text": {
+                  "field": "Name",
+                  "fixed": "",
+                  "mode": "field"
+                },
+                "textConfig": {
+                  "fontSize": 12,
+                  "offsetX": 0,
+                  "offsetY": -10,
+                  "textAlign": "center",
+                  "textBaseline": "middle"
+                }
+              }
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "B"
+            },
+            "layer-tooltip": true,
+            "location": {
+              "mode": "auto"
+            },
+            "name": "Inbound-Node",
+            "tooltip": true,
+            "type": "markers"
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        },
+        "view": {
+          "allLayers": true,
+          "id": "fit",
+          "lat": 0,
+          "lon": 0,
+          "noRepeat": false,
+          "zoom": 15
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH OriginalRequest AS (\n\n  SELECT REPLACE(source_id::text, '!', '') AS initiator, REPLACE(destination_id::text, '!', '') AS target\n\n  FROM mesh_packet_metrics WHERE packet_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND portnum = 'TRACEROUTE_APP' LIMIT 1\n\n),\n\nReplyReceipt AS (\n\n  SELECT m.route_towards, m.snr_towards, COALESCE(array_length(m.route_towards, 1), 0) AS hop_count\n\n  FROM mesh_packet_metrics m CROSS JOIN OriginalRequest o\n\n  WHERE m.request_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND m.portnum = 'TRACEROUTE_APP'\n\n    -- \ud83d\udccd Target Lock\n\n    AND REPLACE(m.source_id::text, '!', '') = o.target\n\n  ORDER BY m.time ASC LIMIT 1\n\n),\n\nAllOutboundPackets AS (\n\n  SELECT m.route_towards, m.snr_towards, COALESCE(array_length(m.route_towards, 1), 0) AS hop_count, m.rx_snr AS header_snr\n\n  FROM mesh_packet_metrics m CROSS JOIN OriginalRequest o\n\n  WHERE m.packet_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND m.portnum = 'TRACEROUTE_APP'\n\n    -- \ud83d\udccd Target Lock\n\n    AND REPLACE(m.destination_id::text, '!', '') = o.target\n\n),\n\nLongestFallback AS (\n\n  SELECT route_towards, snr_towards, hop_count, header_snr FROM AllOutboundPackets ORDER BY hop_count DESC LIMIT 1\n\n),\n\nBestPath AS (\n\n  SELECT \n\n    o.initiator, o.target, \n\n    COALESCE(r.route_towards, f.route_towards) AS route_towards, \n\n    COALESCE(r.snr_towards, f.snr_towards) AS snr_towards, \n\n    COALESCE(r.hop_count, f.hop_count, 0) AS hop_count, \n\n    -- \ud83d\udccd Safely extract Final Hop SNR from the Receipt Array OR the Hardware Header\n\n    COALESCE(r.snr_towards[COALESCE(r.hop_count, f.hop_count, 0) + 1], f.header_snr) AS target_snr, \n\n    CASE WHEN r.route_towards IS NOT NULL THEN true ELSE false END AS reached_target\n\n  FROM OriginalRequest o LEFT JOIN LongestFallback f ON true LEFT JOIN ReplyReceipt r ON true\n\n),\n\nCombinedHops AS (\n\n  -- Hop 0: Initiator (Starting Point)\n\n  SELECT 0::int AS hop_index, initiator::text AS node_id, NULL::numeric AS snr FROM BestPath\n\n  UNION ALL\n\n  -- Hops 1 through N: The journey\n\n  SELECT idx::int, CASE WHEN route_node::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(route_node::text, '!', '') END, (NULLIF(snr_val, -128) / 4.0)::numeric\n\n  FROM BestPath CROSS JOIN LATERAL unnest(route_towards, snr_towards) WITH ORDINALITY AS t(route_node, snr_val, idx)\n\n  UNION ALL\n\n  -- Final Hop: Only rendered if it successfully reached the destination!\n\n  SELECT (hop_count + 1)::int, target::text, (NULLIF(target_snr, -128) / 4.0)::numeric FROM BestPath WHERE reached_target = true\n\n)\n\n\n\nSELECT\n\n  c.hop_index AS \"Hop Index\",\n\n  c.node_id AS \"Node ID\",\n\n  COALESCE(n.long_name, c.node_id) AS \"Name\",\n\n  ROUND(c.snr, 1) AS \"Hop SNR (dB)\",\n\n  n.latitude / 10000000.0 AS latitude,\n\n  n.longitude / 10000000.0 AS longitude\n\nFROM CombinedHops c\n\nLEFT JOIN node_details n ON c.node_id = REPLACE(n.node_id::text, '!', '')\n\nWHERE n.latitude IS NOT NULL AND n.longitude IS NOT NULL\n\nORDER BY c.hop_index ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "meshtastic",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "hide": false,
+          "rawQuery": true,
+          "rawSql": "WITH OriginalRequest AS (\n\n  SELECT REPLACE(source_id::text, '!', '') AS initiator, REPLACE(destination_id::text, '!', '') AS target\n\n  FROM mesh_packet_metrics WHERE packet_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND portnum = 'TRACEROUTE_APP' LIMIT 1\n\n),\n\nBestReplyPacket AS (\n\n  SELECT \n\n    REPLACE(m.source_id::text, '!', '') AS reply_sender, \n\n    -- \ud83d\udccd Broadcast Override\n\n    CASE WHEN REPLACE(m.destination_id::text, '!', '') IN ('ffffffff', '^all') THEN o.initiator ELSE REPLACE(m.destination_id::text, '!', '') END AS reply_dest, \n\n    m.route_back, m.snr_back, COALESCE(array_length(m.route_back, 1), 0) AS hop_count, \n\n    -- \ud83d\udccd Hardware Metadata\n\n    m.rx_snr AS header_snr\n\n  FROM mesh_packet_metrics m CROSS JOIN OriginalRequest o\n\n  WHERE m.request_id = NULLIF(${traceroute_id:singlequote}, '')::bigint AND m.portnum = 'TRACEROUTE_APP'\n\n    -- \ud83d\udccd Target Lock\n\n    AND REPLACE(m.source_id::text, '!', '') = o.target \n\n  ORDER BY m.time ASC LIMIT 1\n\n),\n\nCombinedHops AS (\n\n  -- Hop 0: Target (Starting Point of the Reply)\n\n  SELECT 0::int AS hop_index, reply_sender::text AS node_id, NULL::numeric AS snr FROM BestReplyPacket\n\n  UNION ALL\n\n  -- Hops 1 through N\n\n  SELECT idx::int, CASE WHEN route_node::text ILIKE '%ffffffff' THEN 'unknown_hop' ELSE REPLACE(route_node::text, '!', '') END, (NULLIF(snr_val, -128) / 4.0)::numeric\n\n  FROM BestReplyPacket CROSS JOIN LATERAL unnest(route_back, snr_back) WITH ORDINALITY AS t(route_node, snr_val, idx)\n\n  UNION ALL\n\n  -- Final Hop: Back to the Initiator, using the hardware SNR\n\n  SELECT (hop_count + 1)::int, reply_dest::text, (NULLIF(header_snr, -128) / 4.0)::numeric FROM BestReplyPacket\n\n)\n\n\n\nSELECT\n\n  c.hop_index AS \"Hop Index\",\n\n  c.node_id AS \"Node ID\",\n\n  COALESCE(n.long_name, c.node_id) AS \"Name\",\n\n  ROUND(c.snr, 1) AS \"Hop SNR (dB)\",\n\n  n.latitude / 10000000.0 AS latitude,\n\n  n.longitude / 10000000.0 AS longitude\n\nFROM CombinedHops c\n\nLEFT JOIN node_details n ON c.node_id = REPLACE(n.node_id::text, '!', '')\n\nWHERE n.latitude IS NOT NULL AND n.longitude IS NOT NULL\n\nORDER BY c.hop_index ASC;",
+          "refId": "B",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Map",
+      "transparent": true,
+      "type": "geomap"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "definition": "SELECT long_name FROM node_details ORDER BY long_name ASC;",
+        "label": "Node Name",
+        "name": "node_name",
+        "options": [],
+        "query": "SELECT long_name FROM node_details ORDER BY long_name ASC;",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "definition": "SELECT node_id FROM node_details WHERE long_name IN (${node_name:singlequote});",
+        "description": "",
+        "label": "Node ID",
+        "name": "node_id",
+        "options": [],
+        "query": "SELECT node_id FROM node_details WHERE long_name IN (${node_name:singlequote});",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "name": "traceroute_id",
+        "options": [],
+        "query": "",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Traceroute Search",
+  "uid": "tatphx9",
+  "weekStart": ""
+}

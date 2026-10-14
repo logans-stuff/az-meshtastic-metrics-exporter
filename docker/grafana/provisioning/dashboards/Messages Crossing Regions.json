@@ -1,0 +1,249 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Dir"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 50
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Packet ID"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/packet/${__data.fields[\"Packet ID\"]}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Destination Gateways"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Investigate Packet",
+                    "url": "/d/tal5bkg?var-packet_id=${__data.fields[\"Packet ID\"]}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH GatewayReceptions AS (\r\n  -- 1. Grab every reception, tag it with the region/channel, and capture the gateway name\r\n  SELECT\r\n    m.packet_id,\r\n    m.time,\r\n    m.portnum,\r\n    REPLACE(m.source_id::text, '!', '') AS sender_id,\r\n    (m.hop_start - m.hop_limit) AS hops_taken,\r\n    NULLIF(TRIM(REPLACE(substring(g.last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')), '') AS region,\r\n    NULLIF(substring(g.last_heard_topic from '/([^/]+)/![a-fA-F0-9]+$'), '') AS channel,\r\n    \r\n    -- \ud83d\udccd Capture the cleanest identifier for the gateway up front\r\n    COALESCE(g.long_name, REPLACE(m.reporting_gateway::text, '!', '')) AS gateway_name\r\n\r\n  FROM mesh_packet_metrics m\r\n  LEFT JOIN node_details g ON REPLACE(m.reporting_gateway::text, '!', '') = REPLACE(g.node_id::text, '!', '')\r\n  WHERE $__timeFilter(m.time)\r\n    AND m.portnum IN (${message_type:singlequote})\r\n    AND g.last_heard_topic IS NOT NULL\r\n),\r\nRankedReceptions AS (\r\n  -- 2. Rank the gateways: Closest to sender (lowest hops) and earliest time wins #1\r\n  SELECT \r\n    *,\r\n    ROW_NUMBER() OVER (PARTITION BY packet_id ORDER BY hops_taken ASC, time ASC) as rx_rank\r\n  FROM GatewayReceptions\r\n  WHERE region IS NOT NULL \r\n    AND channel IN (${channel:singlequote})\r\n),\r\nOrigin AS (\r\n  -- 3A. The first gateway to hear it establishes the Source Region\r\n  SELECT * FROM RankedReceptions WHERE rx_rank = 1\r\n),\r\nDestinations AS (\r\n  -- 3B. Aggregate all gateways in the destination region that caught the same packet\r\n  SELECT \r\n    packet_id,\r\n    region,\r\n    MIN(time) as arrival_time,\r\n    MIN(hops_taken) as min_dest_hops,\r\n    \r\n    -- \ud83d\udccd String together all unique gateways in this destination region that heard it\r\n    STRING_AGG(DISTINCT gateway_name, ', ') AS dest_gateways\r\n\r\n  FROM RankedReceptions\r\n  WHERE rx_rank > 1\r\n  GROUP BY packet_id, region\r\n)\r\n\r\n-- 4. Bring the journey together\r\nSELECT\r\n  o.time AS \"Origin Time\",\r\n  o.packet_id::text AS \"Packet ID\",\r\n  COALESCE(sn.long_name, o.sender_id) AS \"Sender Node\",\r\n  o.portnum AS \"Message Type\",\r\n  o.channel AS \"Channel\",\r\n  \r\n  -- The Journey Columns\r\n  o.region AS \"Source\",\r\n  '\u27a1\ufe0f' AS \"Dir\",\r\n  d.region AS \"Destination\",\r\n  \r\n  -- \ud83d\udccd The new column listing every destination receiver\r\n  d.dest_gateways AS \"Destination Gateways\",\r\n  \r\n  -- Transit Metrics\r\n  d.min_dest_hops - o.hops_taken AS \"Hops Between Regions\",\r\n  ROUND(EXTRACT(EPOCH FROM (d.arrival_time - o.time))::numeric, 2) AS \"Transit Delay (s)\"\r\n\r\nFROM Origin o\r\nJOIN Destinations d ON o.packet_id = d.packet_id \r\n  AND o.region != d.region \r\n\r\nLEFT JOIN node_details sn ON o.sender_id = REPLACE(sn.node_id::text, '!', '')\r\n\r\nWHERE o.region IN (${source_region:singlequote})\r\n  AND d.region IN (${destination_region:singlequote})\r\n\r\nORDER BY o.time DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "List of Messages",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "allowCustomValue": false,
+        "current": {
+          "text": [
+            ""
+          ],
+          "value": [
+            ""
+          ]
+        },
+        "definition": "SELECT DISTINCT TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) AS region\nFROM node_details\nWHERE last_heard_topic IS NOT NULL \n  AND substring(last_heard_topic from '^msh/(.*?)/2/[ce]/') != ''\nORDER BY region ASC;",
+        "description": "MQTT region(s) where message was heard earlier than destination",
+        "includeAll": false,
+        "label": "Source Region",
+        "multi": true,
+        "name": "source_region",
+        "options": [],
+        "query": "SELECT DISTINCT TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) AS region\nFROM node_details\nWHERE last_heard_topic IS NOT NULL \n  AND substring(last_heard_topic from '^msh/(.*?)/2/[ce]/') != ''\nORDER BY region ASC;",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "allowCustomValue": false,
+        "current": {
+          "text": [
+            ""
+          ],
+          "value": [
+            ""
+          ]
+        },
+        "definition": "SELECT DISTINCT TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) AS region\nFROM node_details\nWHERE last_heard_topic IS NOT NULL \n  AND substring(last_heard_topic from '^msh/(.*?)/2/[ce]/') != ''\nORDER BY region ASC;",
+        "label": "Destination Region",
+        "multi": true,
+        "name": "destination_region",
+        "options": [],
+        "query": "SELECT DISTINCT TRIM(REPLACE(substring(last_heard_topic from '^msh/(.*?)/2/[ce]/'), 'US/AZ/', '')) AS region\nFROM node_details\nWHERE last_heard_topic IS NOT NULL \n  AND substring(last_heard_topic from '^msh/(.*?)/2/[ce]/') != ''\nORDER BY region ASC;",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "MediumFast",
+          "value": "MediumFast"
+        },
+        "definition": "SELECT DISTINCT substring(last_heard_topic from '/([^/]+)/[^/]+$') AS channel\nFROM node_details\nWHERE last_heard_topic IS NOT NULL\n  AND substring(last_heard_topic from '/([^/]+)/[^/]+$') != ''\nORDER BY channel ASC;",
+        "description": "Channel",
+        "label": "Channel",
+        "name": "channel",
+        "options": [],
+        "query": "SELECT DISTINCT substring(last_heard_topic from '/([^/]+)/[^/]+$') AS channel\nFROM node_details\nWHERE last_heard_topic IS NOT NULL\n  AND substring(last_heard_topic from '/([^/]+)/[^/]+$') != ''\nORDER BY channel ASC;",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "allowCustomValue": false,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "definition": "SELECT DISTINCT portnum \nFROM mesh_packet_metrics \nWHERE $__timeFilter(time)\n  AND portnum IS NOT NULL \n  AND portnum != ''\nORDER BY portnum ASC;",
+        "includeAll": true,
+        "label": "Message Type",
+        "multi": true,
+        "name": "message_type",
+        "options": [],
+        "query": "SELECT DISTINCT portnum \nFROM mesh_packet_metrics \nWHERE $__timeFilter(time)\n  AND portnum IS NOT NULL \n  AND portnum != ''\nORDER BY portnum ASC;",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Messages Crossing Regions",
+  "uid": "taqpfcj",
+  "weekStart": ""
+}

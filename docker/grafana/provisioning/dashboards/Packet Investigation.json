@@ -1,0 +1,306 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false,
+            "wrapText": true
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sender"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"raw_sender_id\"]}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open in Meshview",
+                    "url": "https://view.azmsh.net/node/${__data.fields[\"raw_target_id\"]}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "raw_sender_id"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom.viz",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "raw_target_id"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom.viz",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "lg",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "PA942B37CCFAF5A81"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  -- \ud83d\udccd Hidden fields specifically for Meshview Data Links\r\n  MAX(REPLACE(m.source_id::text, '!', '')) AS \"raw_sender_id\",\r\n  MAX(REPLACE(m.destination_id::text, '!', '')) AS \"raw_target_id\",\r\n\r\n  COALESCE(MAX(sn.long_name), MAX(REPLACE(m.source_id::text, '!', ''))) AS \"Sender\",\r\n  CASE\r\n    WHEN MAX(REPLACE(m.destination_id::text, '!', '')) IN ('ffffffff', '4294967295', '^all') THEN 'Broadcast'\r\n    ELSE COALESCE(MAX(dn.long_name), MAX(REPLACE(m.destination_id::text, '!', '')))\r\n  END AS \"Target\",\r\n  MAX(m.portnum) AS \"App / Port\",\r\n  MAX(m.hop_start) AS \"Max Hops\",\r\n  MAX(m.message_size_bytes) AS \"Size (Bytes)\",\r\n  MAX(m.transport_mechanism) AS \"Transport\",\r\n  BOOL_OR(m.want_ack) AS \"Ack Requested\",\r\n  BOOL_OR(m.pki_encrypted) AS \"PKI Encrypted\",\r\n  MIN(m.time) AS \"First Heard\"\r\nFROM mesh_packet_metrics m\r\nLEFT JOIN node_details sn ON REPLACE(m.source_id::text, '!', '') = REPLACE(sn.node_id::text, '!', '')\r\nLEFT JOIN node_details dn ON REPLACE(m.destination_id::text, '!', '') = REPLACE(dn.node_id::text, '!', '')\r\nWHERE m.packet_id = NULLIF('${packet_id}', '')::bigint;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Packet Metadata",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "PA942B37CCFAF5A81"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false,
+            "minWidth": 50,
+            "wrapHeaderText": true,
+            "wrapText": true
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Relay Byte"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Investigate Byte ${__data.fields.raw_relay_byte}",
+                    "url": "/d/tav2jjn?var-relay_byte=${__data.fields[\"raw_relay_byte\"]}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "raw_relay_byte"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom.viz",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 24,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "dataset": "meshtastic",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  -- \ud83d\udccd Calculates seconds elapsed since the very first gateway reported this packet\r\n  '+' || ROUND(EXTRACT(EPOCH FROM (m.time - MIN(m.time) OVER()))::numeric, 2) || 's' AS \"Time Offset\",\r\n  \r\n  (m.hop_start - m.hop_limit) AS \"Hops Taken\",\r\n  m.rx_snr AS \"SNR\",\r\n  m.rx_rssi AS \"RSSI\",\r\n  COALESCE(gn.long_name, REPLACE(m.reporting_gateway::text, '!', '')) AS \"Reporting Gateway\",\r\n  \r\n  -- \ud83d\udccd Combines the decimal byte with the padded 0x Hex equivalent\r\n  m.relay_node AS \"raw_relay_byte\", -- Hidden field for the data link\r\n  m.relay_node::text || ' (0x' || lower(lpad(to_hex(m.relay_node::integer), 2, '0')) || ')' AS \"Relay Byte\",\r\n  \r\n  -- \ud83d\udccd The Upgraded Uplink Derivation\r\n  (\r\n    SELECT STRING_AGG(\r\n      DISTINCT COALESCE(sn.long_name, REPLACE(sn.node_id::text, '!', '')) || \r\n      ' (!' || lower(to_hex(REPLACE(sn.node_id::text, '!', '')::bigint)) || ')', \r\n      E'\\n'\r\n    )\r\n    FROM node_details sn\r\n    -- The modulo check, plus the FF/00 exception\r\n    WHERE (\r\n        MOD(REPLACE(sn.node_id::text, '!', '')::numeric, 256) = m.relay_node::numeric\r\n        OR (m.relay_node::numeric = 255 AND MOD(REPLACE(sn.node_id::text, '!', '')::numeric, 256) = 0)\r\n      )\r\n      AND REPLACE(sn.node_id::text, '!', '') NOT IN (REPLACE(m.source_id::text, '!', ''), REPLACE(m.reporting_gateway::text, '!', ''))\r\n      \r\n      -- \ud83d\udccd The STRICT Adjacency Filter\r\n      AND EXISTS (\r\n          SELECT 1 \r\n          FROM mesh_packet_metrics history\r\n          WHERE REPLACE(history.source_id::text, '!', '') = REPLACE(sn.node_id::text, '!', '')\r\n            AND REPLACE(history.reporting_gateway::text, '!', '') = REPLACE(m.reporting_gateway::text, '!', '')\r\n            \r\n            -- \ud83d\udccd THE FIX: Only count it if the gateway hears them DIRECTLY (0 hops)\r\n            AND history.hop_start = history.hop_limit \r\n            \r\n            AND history.time > NOW() - INTERVAL '3 days'\r\n      )\r\n  ) AS \"Likely Relay Nodes\"\r\n\r\nFROM mesh_packet_metrics m\r\nLEFT JOIN node_details gn ON REPLACE(m.reporting_gateway::text, '!', '') = REPLACE(gn.node_id::text, '!', '')\r\nWHERE m.packet_id = NULLIF('${packet_id}', '')::bigint\r\nORDER BY \"Hops Taken\" ASC, \"Time Offset\" ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "RX info",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "485893788",
+          "value": "485893788"
+        },
+        "label": "Packet ID",
+        "name": "packet_id",
+        "options": [],
+        "query": "",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Packet Investigation",
+  "uid": "tal5bkg",
+  "weekStart": ""
+}
